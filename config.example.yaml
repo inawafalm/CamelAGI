@@ -1,0 +1,99 @@
+# CamelAGI Configuration
+# Copy to ~/.camelagi/config.yaml and customize
+
+# ─── Provider & Model ─────────────────────────────────────────────
+provider: anthropic              # anthropic | openai
+model: claude-sonnet-4-20250514  # Any model supported by your provider
+apiKey: sk-ant-...               # Or set ANTHROPIC_API_KEY / OPENAI_API_KEY env var
+# baseUrl: https://...           # Custom endpoint (OpenRouter, Ollama, etc.)
+
+# ─── Agent Behavior ───────────────────────────────────────────────
+thinking: "off"     # off | low | medium | high (extended thinking)
+effort: high        # low | medium | high | max
+maxTurns: 25        # Max tool-use iterations per message
+timeoutSeconds: 300 # Per-run timeout
+# maxBudgetUsd: 5   # Optional spending cap per run
+
+# ─── Gateway Server ───────────────────────────────────────────────
+serve:
+  port: 18789
+  host: 127.0.0.1
+  token: your-secret-token-here  # Auth token for REST/WS API
+  rateLimit:
+    windowMs: 60000  # Rate limit window (ms)
+    max: 60          # Max requests per window
+
+# ─── Telegram ─────────────────────────────────────────────────────
+telegram:
+  botToken: "123456:ABC-..."     # Main bot token from @BotFather
+  allowedUsers: []               # Telegram user IDs (auto-locked on first /start)
+  groups:
+    mentionOnly: true            # In groups, only respond when @mentioned
+
+# ─── Context Compaction ───────────────────────────────────────────
+compaction:
+  enabled: true
+  maxTokens: 80000   # Trigger compaction at 80% of this value
+  keepTurns: 6       # Keep last N turns verbatim
+
+# ─── Tool Policy ──────────────────────────────────────────────────
+tools:
+  allow: []  # Whitelist (empty = all allowed)
+  deny: []   # Blacklist (e.g., ["exec"] to disable shell)
+
+# ─── Approvals ────────────────────────────────────────────────────
+approvals:
+  mode: "off"        # off | smart | always
+  allowlist: []      # Tools that never need approval (e.g., ["read", "memory_search"])
+  timeoutSeconds: 120
+  fallback: deny     # deny | allow (when approval times out)
+  # forwardTo: 12345 # Telegram chat ID for headless approval forwarding
+
+# ─── Skills & Hooks ───────────────────────────────────────────────
+skills:
+  enabled: true
+  deny: []           # Skill names to disable
+
+hooks:
+  enabled: false     # Enable lifecycle hooks (~/.camelagi/hooks/)
+
+# ─── Retry ────────────────────────────────────────────────────────
+retry:
+  maxRetries: 3
+  backoffMs: 1000    # Base backoff (exponential, capped at 30s)
+
+# ─── Concurrency Lanes ───────────────────────────────────────────
+lanes:
+  main: 3       # Max concurrent user chat runs
+  cron: 1       # Max concurrent cron runs
+  subagent: 5   # Max concurrent sub-agent runs
+
+# ─── Boot Script ──────────────────────────────────────────────────
+boot: true  # Run ~/.camelagi/BOOT.md on gateway start
+
+# ─── Cron Jobs ────────────────────────────────────────────────────
+cron: []
+# cron:
+#   - id: daily-summary
+#     name: Daily Summary
+#     schedule: "0 9 * * *"       # Every day at 9 AM
+#     prompt: "Summarize yesterday's activity from memory"
+#     session: cron-summary       # Dedicated session (optional)
+#     enabled: true
+
+# ─── Named Agents ────────────────────────────────────────────────
+agents: {}
+# agents:
+#   coder:
+#     name: Coder
+#     model: claude-sonnet-4-20250514
+#     thinking: medium
+#     telegram:
+#       botToken: "789012:DEF-..."
+#       allowedUsers: []
+#   reviewer:
+#     name: Reviewer
+#     model: claude-sonnet-4-20250514
+#     effort: max
+#     telegram:
+#       botToken: "345678:GHI-..."

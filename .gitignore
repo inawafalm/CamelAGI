@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.js
+*.js.map
+*.d.ts
+!camelagi.mjs
+.env
+.env.*
+!.env.example
+coverage/
+.nyc_output/
+.DS_Store
