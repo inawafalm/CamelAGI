@@ -11,11 +11,16 @@
   <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-5.7-blue?logo=typescript" alt="TypeScript"></a>
   <a href="https://platform.claude.com/docs/en/agent-sdk/overview"><img src="https://img.shields.io/badge/Built%20with-Claude%20Agent%20SDK-orange?logo=anthropic" alt="Claude Agent SDK"></a>
   <a href="https://core.telegram.org/bots"><img src="https://img.shields.io/badge/Telegram-Admin%20Bot-26A5E4?logo=telegram" alt="Telegram"></a>
+  <a href="https://camelagi.net"><img src="https://img.shields.io/badge/Website-camelagi.net-brown" alt="Website"></a>
 </p>
 
 <br>
 
 CamelAGI is a self-hosted AI assistant that runs on your server and puts you in full control from your phone. One command to set up, then manage everything from Telegram — no terminal needed.
+
+<p align="center">
+  <a href="https://camelagi.net"><strong>🌐 CamelAGI.net</strong></a>
+</p>
 
 ## Contents
 
@@ -23,8 +28,10 @@ CamelAGI is a self-hosted AI assistant that runs on your server and puts you in 
 - [Admin Bot — BotFather for Your AI Server](#admin-bot--botfather-for-your-ai-server)
 - [Claude Agent SDK vs pi-agent](#claude-agent-sdk-vs-pi-agent)
 - [Quick Start](#quick-start)
+- [Features](#features)
 - [Terminal UI — `camel chat`](#terminal-ui--camel-chat)
 - [Developer Experience](#developer-experience)
+- [Roadmap](#roadmap)
 - [Documentation](#documentation)
 - [License](#license)
 
@@ -144,6 +151,27 @@ Create agents, manage config, approve users, monitor sessions, restart bots — 
 
 <br>
 
+## Features
+
+> Terminal or Telegram — same agent, same tools, same memory.
+
+| | Feature | Description |
+|---|---|---|
+| ⌨️ | **camel chat — Terminal UI** | Full TUI with streaming, slash commands, model switching, session management, tool output, and markdown rendering |
+| 🤖 | **Telegram — Admin Bot** | @BotFather for AI agents. Create, configure, and manage agents entirely from Telegram — instant commands, zero tokens burned |
+| 💬 | **Telegram — Agent Bots** | Each agent gets its own Telegram bot. Message it like any chat — it runs tools, reads files, remembers context |
+| ⚙️ | **Same Engine** | Both interfaces run the same agent loop, same 10 tools, same two-tier memory. Switch between terminal and Telegram anytime |
+| 🧠 | **Agent Memory** | Each agent gets isolated two-tier memory — curated MEMORY.md + daily auto-journaling with recency-boosted search |
+| ⏰ | **Cron Jobs** | Schedule AI tasks — daily summaries, monitoring, automations. Manage from Telegram, CLI, or the agent itself |
+| 🛡️ | **Tool Approvals** | Human-in-the-loop safety. Approve dangerous operations from Telegram with inline buttons — even headless |
+| 💭 | **Extended Thinking** | Claude reasons step by step before answering. Configure depth: off, low, medium, high |
+| 🔌 | **Multi-Provider** | Anthropic, OpenAI, OpenRouter, Ollama — any OpenAI-compatible endpoint. Zero vendor lock-in |
+| 🔐 | **Secure Pairing** | OTP-based user verification. No hardcoded IDs — pairing code + 5-digit OTP from Telegram |
+| 🪝 | **Skills & Hooks** | Teach agents skills via Markdown. Run shell/JS hooks before and after tool calls |
+| 🔄 | **Auto Compaction** | Summarizes old turns at 80% capacity. Flushes facts to memory first — nothing is lost |
+
+<br>
+
 ## Terminal UI — `camel chat`
 
 Don't want to use Telegram? `camel chat` gives you a full terminal interface with the same agent capabilities.
@@ -167,6 +195,19 @@ Don't want to use Telegram? `camel chat` gives you a full terminal interface wit
 | **Package structure** | Single package | Monorepo |
 | **Terminal UI** | Full TUI with overlays & streaming | None |
 | **AI Agent runtime** | [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) — fully documented by Anthropic, easy to extend | pi-agent & custom abstractions |
+
+<br>
+
+## Roadmap
+
+We're building CamelAGI to be the most capable open-source AI platform — for individuals and businesses alike.
+
+| | Feature | Description |
+|---|---|---|
+| 📡 | **More Channels** | WhatsApp, Discord, Slack — connect your AI agents to every platform your team already uses |
+| 🧩 | **ClawHub Skills** | Browse and install community skills from [clawhub.io](https://clawhub.io) — one command to add new capabilities to any agent |
+| 🖥️ | **Native Desktop Apps** | Standalone macOS and Windows apps to run CamelAGI natively — no terminal, no companion app required |
+| 🏢 | **Business Ready** | Deploy CamelAGI for your business — finance, accounting, operations, customer support. AI agents that understand your workflows |
 
 <br>
 
