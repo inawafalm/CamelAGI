@@ -2,9 +2,7 @@
   <img src="assets/logo-bg.png" alt="CamelAGI Logo" width="180" style="border-radius: 50%;" />
 </p>
 <h1 align="center" style="border: none; padding-bottom: 0; margin-bottom: 0;">CamelAGI</h1>
-<hr style="border: none; border-top: 1px solid #e1e4e8; margin: 16px 0;">
-<p align="center" style="font-size: 0.9em; color: #b45309; margin-top: 0;"><strong>OpenClaw Alternative</strong></p>
-<hr style="border: none; border-top: 1px solid #e1e4e8; margin: 16px 0;">
+<p align="center" style="font-size: 0.9em; color: #b45309; margin-top: 4px;"><strong>OpenClaw Alternative</strong></p>
 <p align="center">
   <strong>Your personal AI agent — powered by Claude Agent SDK.<br>Set it up once, manage everything from Telegram.</strong>
 </p>
