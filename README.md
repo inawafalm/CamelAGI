@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo-bg.png" alt="CamelAGI Logo" width="180" style="border-radius: 50%;" />
+  <img src="assets/logo-bg.png" alt="CamelAGI Logo" width="200" />
 </p>
 <h1 align="center" style="border: none; padding-bottom: 0; margin-bottom: 0;">CamelAGI</h1>
 <p align="center" style="font-size: 0.9em; color: #b45309; margin-top: 4px;"><strong>OpenClaw Alternative</strong></p>
@@ -17,14 +17,23 @@
 
 CamelAGI is a self-hosted AI assistant that runs on your server and puts you in full control from your phone. One command to set up, then manage everything from Telegram — no terminal needed.
 
+## Contents
+
+- [Built on Claude Agent SDK](#built-on-claude-agent-sdk)
+- [Admin Bot — BotFather for Your AI Server](#admin-bot--botfather-for-your-ai-server)
+- [Claude Agent SDK vs pi-agent](#claude-agent-sdk-vs-pi-agent)
+- [Quick Start](#quick-start)
+- [Terminal UI — `camel chat`](#terminal-ui--camel-chat)
+- [Developer Experience](#developer-experience)
+- [Documentation](#documentation)
+- [License](#license)
+
 <br>
 
 ## Built on Claude Agent SDK
 
 <p align="center">
-  <span style="background-color: #f5f5f5; padding: 12px; display: inline-block; border-radius: 8px;">
-    <img src="assets/Claude_Logo.png" alt="Claude Logo" width="200" />
-  </span>
+  <img src="assets/Claude_Logo.png" alt="Claude Logo" width="200" />
 </p>
 
 Powered by [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) — the same runtime behind Claude Code.
@@ -64,9 +73,49 @@ Powered by [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/over
 
 <br>
 
+## Claude Agent SDK vs pi-agent
+
+CamelAGI uses **Claude Agent SDK**. OpenClaw uses **pi-agent-core**. Here's why that matters:
+
+|  | **Claude Agent SDK** (CamelAGI) | **pi-agent-core** (OpenClaw) |
+|---|---|---|
+| **Built by** | Anthropic | Third-party |
+| **Tool use** | Native function calling with structured outputs | Custom tool protocol |
+| **Thinking** | Extended thinking (low/medium/high) built-in | Not available |
+| **Subagents** | Native agent spawning with isolated context | Custom implementation |
+| **Prompt caching** | Built-in, automatic | Manual |
+| **Memory** | Agent-scoped two-tier memory with recency boost | Vector DB (LanceDB) |
+| **Streaming** | Native SSE streaming | Custom streaming |
+| **Upgrades** | `npm update` — get Anthropic's latest improvements | Maintain custom abstractions |
+
+> **The key difference:** Claude Agent SDK is Anthropic's own runtime. When Anthropic ships improvements to tool use, thinking, or context handling, CamelAGI gets them automatically. pi-agent is a third-party layer that must be manually updated to keep up.
+
+<br>
+
+## Quick Start
+
+**One-Liner**
+```bash
+curl -fsSL https://camelAGI.ai/install.sh | bash
+```
+
+**npm**
+```bash
+npm install -g camelagi
+```
+
+**Usage**
+```bash
+camel bootstrap     # Full setup: admin bot + pairing + API config
+camel serve         # Start the gateway (after bootstrap)
+camel chat          # Terminal UI
+```
+
+<br>
+
 ## Admin Bot — BotFather for Your AI Server
 
-The Admin Bot is a **non-AI Telegram bot** — no LLM calls, no tokens burned, just instant commands. Think [@BotFather](https://t.me/BotFather), but for your entire AI infrastructure.
+Create agents, manage config, approve users, monitor sessions, restart bots — all from Telegram. The Admin Bot is a **non-AI Telegram bot** — no LLM calls, no tokens burned, just instant commands. Think [@BotFather](https://t.me/BotFather), but for your entire AI infrastructure.
 
 ### Getting Started
 
@@ -95,36 +144,6 @@ The Admin Bot is a **non-AI Telegram bot** — no LLM calls, no tokens burned, j
 
 <br>
 
-## Claude Agent SDK vs pi-agent
-
-CamelAGI uses **Claude Agent SDK**. OpenClaw uses **pi-agent-core**. Here's why that matters:
-
-|  | **Claude Agent SDK** (CamelAGI) | **pi-agent-core** (OpenClaw) |
-|---|---|---|
-| **Built by** | Anthropic | Third-party |
-| **Tool use** | Native function calling with structured outputs | Custom tool protocol |
-| **Thinking** | Extended thinking (low/medium/high) built-in | Not available |
-| **Subagents** | Native agent spawning with isolated context | Custom implementation |
-| **Prompt caching** | Built-in, automatic | Manual |
-| **Memory** | Agent-scoped two-tier memory with recency boost | Vector DB (LanceDB) |
-| **Streaming** | Native SSE streaming | Custom streaming |
-| **Upgrades** | `npm update` — get Anthropic's latest improvements | Maintain custom abstractions |
-
-> **The key difference:** Claude Agent SDK is Anthropic's own runtime. When Anthropic ships improvements to tool use, thinking, or context handling, CamelAGI gets them automatically. pi-agent is a third-party layer that must be manually updated to keep up.
-
-<br>
-
-## Quick Start
-
-```bash
-npm install -g camelagi
-camel bootstrap     # Full setup: admin bot + pairing + API config
-camel serve         # Start the gateway (after bootstrap)
-camel chat          # Terminal UI
-```
-
-<br>
-
 ## Terminal UI — `camel chat`
 
 Don't want to use Telegram? `camel chat` gives you a full terminal interface with the same agent capabilities.
@@ -142,9 +161,12 @@ Don't want to use Telegram? `camel chat` gives you a full terminal interface wit
 
 ## Developer Experience
 
-- ~10K LOC (vs OpenClaw ~700K+) — easy to read, fork, build on
-- Full TUI with overlays and streaming
-- Single package, zero monorepo complexity
+| | **CamelAGI** | **OpenClaw** |
+|---|---|---|
+| **Codebase size** | ~10K LOC | ~700K+ LOC |
+| **Package structure** | Single package | Monorepo |
+| **Terminal UI** | Full TUI with overlays & streaming | None |
+| **AI Agent runtime** | [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) — fully documented by Anthropic, easy to extend | pi-agent & custom abstractions |
 
 <br>
 
