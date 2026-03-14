@@ -2,6 +2,7 @@
   <img src="assets/logo-bg.png" alt="CamelAGI Logo" width="180" style="border-radius: 50%;" />
 </p>
 <h1 align="center" style="border: none; padding-bottom: 0; margin-bottom: 0;">CamelAGI</h1>
+<hr style="border: none; border-top: 1px solid #e1e4e8; margin: 16px 0;">
 <p align="center" style="font-size: 0.9em; color: #b45309; margin-top: 0;"><strong>OpenClaw Alternative</strong></p>
 <hr style="border: none; border-top: 1px solid #e1e4e8; margin: 16px 0;">
 <p align="center">
@@ -141,16 +142,6 @@ Don't want to use Telegram? `camel chat` gives you a full terminal interface wit
 
 <br>
 
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [DOCS.md](DOCS.md) | Full reference documentation |
-| [GUIDE.md](GUIDE.md) | User guide with examples |
-| [featuresDocs/](featuresDocs/) | Deep-dive feature docs |
-
-<br>
-
 ## Developer Experience
 
 - ~10K LOC (vs OpenClaw ~700K+) — easy to read, fork, build on
@@ -159,21 +150,13 @@ Don't want to use Telegram? `camel chat` gives you a full terminal interface wit
 
 <br>
 
-## Features
+## Documentation
 
-- **Telegram Admin Bot**
-  - BotFather-style control plane
-  - Create agents from chat — no restart
-  - Configure your entire server remotely
-  - Approve/deny tool calls with inline buttons
-- **Multi-Agent**
-  - Per-agent Telegram bot, memory, personality
-  - Hot-start agents at runtime
-  - Agent-scoped isolated memory
-- **Runtime**
-  - Gateway server (Express + WebSocket)
-  - Context compaction with memory flush
-  - Approval gating (off / smart / always)
+| Document | Description |
+|----------|-------------|
+| [DOCS.md](DOCS.md) | Full reference documentation |
+| [GUIDE.md](GUIDE.md) | User guide with examples |
+| [featuresDocs/](featuresDocs/) | Deep-dive feature docs |
 
 <br>
 
