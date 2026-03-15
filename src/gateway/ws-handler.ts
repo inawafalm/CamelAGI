@@ -163,11 +163,13 @@ export function registerWsHandler(wss: WebSocketServer, state: GatewayState): vo
             try {
               const newModel = msg.model as string | undefined;
               const newThinking = msg.thinking as string | undefined;
+              const newEffort = msg.effort as string | undefined;
               if (newModel) state.config = { ...state.config, model: newModel };
               if (newThinking) state.config = { ...state.config, thinking: newThinking as Config["thinking"] };
+              if (newEffort) state.config = { ...state.config, effort: newEffort as Config["effort"] };
               state.client = createClient(state.config);
               state.systemPrompt = buildSystemPrompt(state.config.systemPrompt);
-              send(ws, { type: "model.switched", model: state.config.model, thinking: state.config.thinking });
+              send(ws, { type: "model.switched", model: state.config.model, thinking: state.config.thinking, effort: state.config.effort });
             } catch (err: unknown) {
               send(ws, { type: "error", message: `Model switch failed: ${errorMessage(err)}` });
             }

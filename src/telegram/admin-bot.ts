@@ -12,6 +12,7 @@ import { getActiveBotIds, startBot, stopBot } from "../telegram.js";
 import type { BotState } from "./types.js";
 import { startWizard, advanceWizard, cancelWizard, hasActiveWizard } from "./wizard.js";
 import { createSetupWizard, createNewAgentWizard } from "./wizards.js";
+import { createVoiceWizard, createVoiceResetWizard } from "./voice-wizard.js";
 import type { WizardDef } from "./wizard.js";
 import { formatAge } from "./helpers.js";
 import { approveRequest, denyRequest, listPendingRequests, hasPendingRequest, createPairingRequest, verifyOtp } from "./pairing.js";
@@ -82,6 +83,7 @@ export async function setupAdminBot(
     { command: "status", description: "System health and stats" },
     { command: "restart", description: "Restart agent bots" },
     { command: "pairing", description: "List pending access requests" },
+    { command: "voice", description: "Configure voice transcription" },
     { command: "cancel", description: "Cancel active wizard" },
   ]).catch(() => {});
 
@@ -189,7 +191,15 @@ export async function setupAdminBot(
     const [, stepId, value] = match;
     const chatId = ctx.chat?.id;
     if (!chatId) return;
-    try { await ctx.editMessageText(`${ctx.callbackQuery.message?.text ?? ""}\n\n-> ${value}`); } catch {}
+    // Show the button label (not raw value like __default__)
+    const buttonText = ctx.callbackQuery.message && "reply_markup" in ctx.callbackQuery.message
+      ? ctx.callbackQuery.message.reply_markup?.inline_keyboard
+          ?.flat()
+          ?.find((btn: any) => btn.callback_data === ctx.callbackQuery.data)
+          ?.text
+      : undefined;
+    const displayValue = buttonText ?? value;
+    try { await ctx.editMessageText(`${ctx.callbackQuery.message?.text ?? ""}\n\n-> ${displayValue}`); } catch {}
     await ctx.answerCallbackQuery();
     await advanceWizard(chatId, value, b);
   });
@@ -305,19 +315,24 @@ export async function setupAdminBot(
     if (action === "approve") {
       const approval = approveBotApproval(agentIdParam);
       if (approval) {
+        const botLabel = approval.botUsername ? `@${approval.botUsername}` : agentIdParam;
         try {
           const sysPrompt = getSystemPrompt();
           await startBot(agentIdParam, approval.botToken, getConfig, () => sysPrompt);
-          const botLabel = approval.botUsername ? `@${approval.botUsername}` : agentIdParam;
-          try {
-            await ctx.editMessageText(
-              `${ctx.callbackQuery.message?.text ?? ""}\n\n-> Approved. ${botLabel} is now running.`,
-            );
-          } catch {}
         } catch (err) {
+          // "already running" is fine — config hot-reload may have started it
           const errMsg = err instanceof Error ? err.message : String(err);
-          try { await ctx.editMessageText(`Failed to start bot: ${errMsg}`); } catch {}
+          if (!errMsg.includes("already running") && !errMsg.includes("already starting")) {
+            try { await ctx.editMessageText(`Failed to start bot: ${errMsg}`); } catch {}
+            await ctx.answerCallbackQuery();
+            return;
+          }
         }
+        try {
+          await ctx.editMessageText(
+            `${ctx.callbackQuery.message?.text ?? ""}\n\n-> Approved. ${botLabel} is now running.`,
+          );
+        } catch {}
       } else {
         try { await ctx.editMessageText("Approval not found or already handled."); } catch {}
       }
@@ -414,17 +429,73 @@ export async function setupAdminBot(
     }
     const runningBots = getActiveBotIds();
     const lines = ["Your agents:\n"];
+    const kb = new InlineKeyboard();
+    let hasButtons = false;
+
     for (const [id, a] of entries) {
       const running = runningBots.includes(id);
-      const status = running ? "running" : "stopped";
-      lines.push(`${a.admin ? "admin" : "bot"} ${a.name} (${id}) — ${status}`);
+      const botState = activeBots.get(id);
+      const username = botState?.botInfo?.username;
+      const statusIcon = running ? "🟢" : a.telegram?.botToken ? "🔴" : "⚪";
+
+      lines.push(`${statusIcon} ${a.name} (${id})`);
       lines.push(`   Model: ${a.model ?? config.model}`);
-      if (a.telegram) lines.push(`   Telegram: configured`);
+
+      if (running && username) {
+        lines.push(`   @${username}`);
+      } else if (a.telegram?.botToken && !running) {
+        lines.push(`   Telegram: stopped`);
+      } else if (!a.telegram?.botToken && !a.admin) {
+        lines.push(`   No channel configured`);
+      }
       lines.push("");
+
+      // Add chat link button for running bots (except admin)
+      if (running && username && !a.admin) {
+        kb.url(`💬 ${a.name}`, `https://t.me/${username}`);
+        hasButtons = true;
+      }
     }
-    lines.push("/soul <id> — edit personality");
-    lines.push("/deleteagent <id> — delete");
-    await ctx.reply(lines.join("\n"));
+
+    // Management buttons
+    if (hasButtons) kb.row();
+    kb.text("➕ New agent", "agents:newagent");
+
+    const stoppedAgents = entries.filter(([id, a]) => !runningBots.includes(id) && a.telegram?.botToken && !a.admin);
+    if (stoppedAgents.length > 0) {
+      kb.text("🔄 Restart stopped", "agents:restart");
+    }
+
+    await ctx.reply(lines.join("\n"), { reply_markup: kb });
+  });
+
+  b.callbackQuery("agents:newagent", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const config = getConfig();
+    if (!config.apiKey) {
+      await ctx.reply("No API key configured. Run /setup first.");
+      return;
+    }
+    await startWizard(ctx.chat!.id, createNewAgentWizard(getConfig, getSystemPrompt), b);
+  });
+
+  b.callbackQuery("agents:restart", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const config = getConfig();
+    const restarted: string[] = [];
+    for (const [id, a] of Object.entries(config.agents)) {
+      if (a.admin) continue;
+      if (!a.telegram?.botToken) continue;
+      if (getActiveBotIds().includes(id)) continue;
+      try {
+        const sysPrompt = getSystemPrompt();
+        await startBot(id, a.telegram.botToken, getConfig, () => sysPrompt);
+        restarted.push(id);
+      } catch { /* skip */ }
+    }
+    await ctx.reply(restarted.length > 0
+      ? `Restarted: ${restarted.join(", ")}`
+      : "No stopped bots to restart.");
   });
 
   b.command("deleteagent", async (ctx) => {
@@ -651,6 +722,38 @@ export async function setupAdminBot(
       } else {
         await ctx.reply(text);
       }
+    }
+  });
+
+  // ─── Voice configuration ─────────────────────────────────────────
+
+  b.command("voice", async (ctx) => {
+    const config = getConfig();
+    if (config.voice.enabled && config.voice.apiKey) {
+      const masked = "***" + config.voice.apiKey.slice(-4);
+      const kb = new InlineKeyboard()
+        .text("Reconfigure", "voice:reconfigure")
+        .text("Reset", "voice:reset");
+      await ctx.reply([
+        "Voice transcription: enabled\n",
+        `Provider: ${config.voice.provider}`,
+        `Model: ${config.voice.model ?? "default"}`,
+        `API Key: ${masked}`,
+        config.voice.language ? `Language: ${config.voice.language}` : null,
+      ].filter(Boolean).join("\n"), { reply_markup: kb });
+    } else {
+      await startWizard(ctx.chat.id, createVoiceWizard(getConfig), b);
+    }
+  });
+
+  b.callbackQuery(/^voice:(reconfigure|reset)$/, async (ctx) => {
+    const action = ctx.callbackQuery.data.match(/^voice:(reconfigure|reset)$/)?.[1];
+    await ctx.answerCallbackQuery();
+    try { await ctx.editMessageText(`${ctx.callbackQuery.message?.text ?? ""}\n\n-> ${action}`); } catch {}
+    if (action === "reconfigure") {
+      await startWizard(ctx.chat!.id, createVoiceWizard(getConfig), b);
+    } else {
+      await startWizard(ctx.chat!.id, createVoiceResetWizard(), b);
     }
   });
 

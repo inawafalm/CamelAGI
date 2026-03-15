@@ -55,6 +55,8 @@ export async function startTelegram(
         bot,
         botInfo: { id: me.id, username: me.username ?? "" },
         runtimeModels: new Map(),
+        runtimeThinking: new Map(),
+        runtimeEffort: new Map(),
       });
       startPolling(bot, id);
     } else {
@@ -104,6 +106,8 @@ export async function startBot(
         bot,
         botInfo: { id: me.id, username: me.username ?? "" },
         runtimeModels: new Map(),
+        runtimeThinking: new Map(),
+        runtimeEffort: new Map(),
       });
       startPolling(bot, agentId);
     } else {

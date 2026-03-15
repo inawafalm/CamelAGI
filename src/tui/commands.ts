@@ -31,6 +31,7 @@ export async function handleCommand(ctx: TuiCtx, input: string): Promise<void> {
           "  /tools           — toggle tool output expand/collapse",
           "  /skills          — list active skills",
           "  /think <level>   — set thinking (off|low|medium|high)",
+          "  /effort <level>  — set effort (low|medium|high|max)",
           "  /context         — show context breakdown (files, tokens)",
           "  /status          — show session status",
           "  /compact         — force context compaction",
@@ -173,6 +174,29 @@ export async function handleCommand(ctx: TuiCtx, input: string): Promise<void> {
       state.config = loadConfig();
       wsSend({ type: "model.switch", model: state.currentModel, thinking: level });
       chatLog.addSystem(`Thinking set to: ${level}`);
+      updateHeader();
+      tui.requestRender();
+      break;
+    }
+
+    case "effort": {
+      const levels = ["low", "medium", "high", "max"] as const;
+      const level = arg as typeof levels[number];
+      if (!arg) {
+        chatLog.addSystem(`Effort: ${state.currentEffort}. Usage: /effort low|medium|high|max`);
+        tui.requestRender();
+        break;
+      }
+      if (!levels.includes(level)) {
+        chatLog.addSystem(`Invalid level. Use: low, medium, high, max`);
+        tui.requestRender();
+        break;
+      }
+      state.currentEffort = level;
+      saveConfig({ effort: level });
+      state.config = loadConfig();
+      wsSend({ type: "model.switch", model: state.currentModel, thinking: state.currentThinking, effort: level });
+      chatLog.addSystem(`Effort set to: ${level}`);
       updateHeader();
       tui.requestRender();
       break;
@@ -400,20 +424,24 @@ export function handleAgentCreation(ctx: TuiCtx, value: string): boolean {
     case "model":
       data.model = value || state.config.model;
       state.agentCreation.step = "prompt";
-      chatLog.addSystem(`Model: ${data.model}\n\nWhat does this agent do? (one line, goes into SOUL.md):`);
+      chatLog.addSystem(`Model: ${data.model}\n\nSOUL.md: use default or customize?\nType a one-line description, or press enter for default:`);
       tui.requestRender();
       return true;
     case "prompt":
-      data.prompt = value;
+      data.prompt = value || "";
       state.agentCreation.step = "token";
-      chatLog.addSystem(`Description: ${value.slice(0, 60)}${value.length > 60 ? "..." : ""}\n\nTelegram bot token (from @BotFather, or "skip" to skip):`);
+      if (value) {
+        chatLog.addSystem(`Description: ${value.slice(0, 60)}${value.length > 60 ? "..." : ""}\n\nTelegram bot token (from @BotFather, or "skip" to skip):`);
+      } else {
+        chatLog.addSystem(`Using default SOUL.md\n\nTelegram bot token (from @BotFather, or "skip" to skip):`);
+      }
       tui.requestRender();
       return true;
     case "token": {
       const token = value.toLowerCase() === "skip" ? "" : value;
       data.token = token;
 
-      seedAgentWorkspace(data.id, data.name, data.prompt);
+      seedAgentWorkspace(data.id, data.name, data.prompt || undefined);
 
       state.config = loadConfig();
       const agents = { ...(state.config.agents ?? {}) } as Record<string, unknown>;

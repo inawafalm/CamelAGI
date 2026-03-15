@@ -20,6 +20,7 @@ import { isGroupChat, shouldRespondInGroup, stripMention, sendChunked, startPoll
 import { hasPendingRequest, createPairingRequest, verifyOtp } from "./pairing.js";
 import { notifyAdminOfPairing } from "./pairing-notify.js";
 import { log as slog } from "../core/log.js";
+import { transcribe } from "./transcribe.js";
 
 export async function setupAgentBot(
   agentId: string,
@@ -34,6 +35,8 @@ export async function setupAgentBot(
     bot: b,
     botInfo: { id: me.id, username: me.username ?? "" },
     runtimeModels: new Map(),
+    runtimeThinking: new Map(),
+    runtimeEffort: new Map(),
   };
   activeBots.set(agentId, state);
 
@@ -42,25 +45,29 @@ export async function setupAgentBot(
     registerForwardBot(b);
   }
 
-  const { botInfo, runtimeModels } = state;
+  const { botInfo, runtimeModels, runtimeThinking, runtimeEffort } = state;
 
   const sid = (chatId: number) =>
     agentId === "telegram" ? `telegram-${chatId}` : `${agentId}-${chatId}`;
 
   const getAgent = (chatId: number) =>
-    resolveAgent(agentId, getConfig(), getSystemPrompt(), runtimeModels.get(chatId));
+    resolveAgent(agentId, getConfig(), getSystemPrompt(), {
+      model: runtimeModels.get(chatId),
+      thinking: runtimeThinking.get(chatId),
+      effort: runtimeEffort.get(chatId),
+    });
 
-  // Register commands
+  // Register commands (only commands this bot actually handles)
   await b.api.setMyCommands([
     { command: "help", description: "List commands and current config" },
     { command: "clear", description: "Clear this chat's history" },
     { command: "status", description: "Show model, message count, token usage" },
-    { command: "model", description: "Switch model for this chat (runtime)" },
+    { command: "model", description: "Switch model for this chat" },
+    { command: "think", description: "Set thinking level" },
+    { command: "effort", description: "Set effort level" },
+    { command: "usage", description: "Token usage for this session" },
     { command: "compact", description: "Force compaction of chat history" },
-    { command: "agents", description: "List all agents" },
-    { command: "soul", description: "View/edit agent SOUL.md" },
-    { command: "sessions", description: "List all sessions" },
-    { command: "config", description: "View/edit config" },
+    { command: "voice", description: "Voice transcription info" },
   ]).catch(() => {});
 
   // Track users verified via OTP — persists for this process lifetime
@@ -166,10 +173,13 @@ export async function setupAgentBot(
       "/clear — Clear this chat's history",
       "/status — Show model, message count, token usage",
       "/model <name> — Switch model for this chat",
+      "/think <level> — Set thinking (off|low|medium|high)",
+      "/effort <level> — Set effort (low|medium|high|max)",
       "/compact — Force compaction of chat history",
       "",
       `Model: ${agent.model}`,
       `Thinking: ${agent.thinking}`,
+      `Effort: ${agent.effort}`,
       `Max turns: ${agent.maxTurns}`,
     ];
     await ctx.reply(lines.join("\n"));
@@ -178,6 +188,8 @@ export async function setupAgentBot(
   b.command("clear", async (ctx) => {
     deleteSession(sid(ctx.chat.id));
     runtimeModels.delete(ctx.chat.id);
+    runtimeThinking.delete(ctx.chat.id);
+    runtimeEffort.delete(ctx.chat.id);
     await ctx.reply("Session cleared.");
   });
 
@@ -193,6 +205,7 @@ export async function setupAgentBot(
       `Agent: ${agent.name}`,
       `Model: ${agent.model}`,
       `Thinking: ${agent.thinking}`,
+      `Effort: ${agent.effort}`,
       `Messages: ${messages.length}`,
       `History: ~${historyTokens} tokens`,
     ];
@@ -212,6 +225,60 @@ export async function setupAgentBot(
     await ctx.reply(`Model switched to: ${newModel}\n(runtime only, resets on /clear or restart)`);
   });
 
+  b.command("think", async (ctx) => {
+    const levels = ["off", "low", "medium", "high"] as const;
+    const arg = ctx.match?.trim() as typeof levels[number];
+    const agent = getAgent(ctx.chat.id);
+    if (!arg) {
+      const kb = new InlineKeyboard();
+      for (const l of levels) {
+        kb.text(l === agent.thinking ? `✓ ${l}` : l, `think:${l}`);
+      }
+      await ctx.reply(`Thinking: ${agent.thinking}`, { reply_markup: kb });
+      return;
+    }
+    if (!levels.includes(arg)) {
+      await ctx.reply("Invalid level. Use: off, low, medium, high");
+      return;
+    }
+    runtimeThinking.set(ctx.chat.id, arg);
+    await ctx.reply(`Thinking set to: ${arg}`);
+  });
+
+  b.callbackQuery(/^think:(.+)$/, async (ctx) => {
+    const level = ctx.callbackQuery.data.split(":")[1] as Config["thinking"];
+    runtimeThinking.set(ctx.chat!.id, level);
+    try { await ctx.editMessageText(`Thinking: ${level} ✓`); } catch {}
+    await ctx.answerCallbackQuery();
+  });
+
+  b.command("effort", async (ctx) => {
+    const levels = ["low", "medium", "high", "max"] as const;
+    const arg = ctx.match?.trim() as typeof levels[number];
+    const agent = getAgent(ctx.chat.id);
+    if (!arg) {
+      const kb = new InlineKeyboard();
+      for (const l of levels) {
+        kb.text(l === agent.effort ? `✓ ${l}` : l, `effort:${l}`);
+      }
+      await ctx.reply(`Effort: ${agent.effort}`, { reply_markup: kb });
+      return;
+    }
+    if (!levels.includes(arg)) {
+      await ctx.reply("Invalid level. Use: low, medium, high, max");
+      return;
+    }
+    runtimeEffort.set(ctx.chat.id, arg);
+    await ctx.reply(`Effort set to: ${arg}`);
+  });
+
+  b.callbackQuery(/^effort:(.+)$/, async (ctx) => {
+    const level = ctx.callbackQuery.data.split(":")[1] as Config["effort"];
+    runtimeEffort.set(ctx.chat!.id, level);
+    try { await ctx.editMessageText(`Effort: ${level} ✓`); } catch {}
+    await ctx.answerCallbackQuery();
+  });
+
   b.command("compact", async (ctx) => {
     const config = getConfig();
     const agent = getAgent(ctx.chat.id);
@@ -228,6 +295,30 @@ export async function setupAgentBot(
     }
   });
 
+  // ─── Admin-only commands: redirect to admin bot ──────────────────
+
+  const adminRedirect = async (ctx: any) => {
+    const config = getConfig();
+    const adminEntry = Object.entries(config.agents).find(([, a]) => a.admin);
+    const adminState = adminEntry ? activeBots.get(adminEntry[0]) : undefined;
+    const adminUsername = adminState?.botInfo?.username;
+    if (adminUsername) {
+      await ctx.reply(`This is an admin command. Use it in @${adminUsername}`);
+    } else {
+      await ctx.reply("This command is only available in the admin bot.");
+    }
+  };
+
+  b.command("agents", adminRedirect);
+  b.command("soul", adminRedirect);
+  b.command("sessions", adminRedirect);
+  b.command("config", adminRedirect);
+  b.command("setup", adminRedirect);
+  b.command("newagent", adminRedirect);
+  b.command("deleteagent", adminRedirect);
+  b.command("pairing", adminRedirect);
+  b.command("restart", adminRedirect);
+
   // ─── Approval callback queries ────────────────────────────────────
 
   b.callbackQuery(/^approve:(.+):(.+)$/, async (ctx) => {
@@ -242,23 +333,11 @@ export async function setupAgentBot(
     await ctx.answerCallbackQuery();
   });
 
-  // ─── Message handler ──────────────────────────────────────────────
+  // ─── Shared message handler ─────────────────────────────────────────
 
-  b.on("message:text", async (ctx) => {
+  async function handleIncoming(ctx: any, cleanText: string) {
     const config = getConfig();
     const agent = getAgent(ctx.chat.id);
-    const text = ctx.message.text;
-
-    if (isGroupChat(ctx.chat.type) && agent.mentionOnly) {
-      const replyToBotId = ctx.message.reply_to_message?.from?.id;
-      if (!shouldRespondInGroup(text, replyToBotId, botInfo.id, botInfo.username)) {
-        return;
-      }
-    }
-
-    const cleanText = stripMention(text, botInfo.username);
-    if (!cleanText) return;
-
     const sessionId = sid(ctx.chat.id);
 
     const chatContext = isGroupChat(ctx.chat.type)
@@ -359,6 +438,100 @@ export async function setupAgentBot(
         await ctx.reply(`Error: ${errMsg}`);
       }
       await setReaction("");
+    }
+  }
+
+  // ─── /voice command (redirect to admin) ────────────────────────────
+
+  b.command("voice", async (ctx) => {
+    const config = getConfig();
+    if (config.voice.enabled) {
+      await ctx.reply("Voice is enabled. Send a voice message and I'll transcribe it.");
+    } else {
+      const adminEntry = Object.entries(config.agents).find(([, a]) => a.admin);
+      const adminState = adminEntry ? activeBots.get(adminEntry[0]) : undefined;
+      const adminUsername = adminState?.botInfo?.username;
+      const hint = adminUsername
+        ? `Voice not configured. Set it up in @${adminUsername} with /voice`
+        : "Voice transcription is not configured.";
+      await ctx.reply(hint);
+    }
+  });
+
+  // ─── Text message handler ─────────────────────────────────────────
+
+  b.on("message:text", async (ctx) => {
+    const agent = getAgent(ctx.chat.id);
+    const text = ctx.message.text;
+
+    if (isGroupChat(ctx.chat.type) && agent.mentionOnly) {
+      const replyToBotId = ctx.message.reply_to_message?.from?.id;
+      if (!shouldRespondInGroup(text, replyToBotId, botInfo.id, botInfo.username)) {
+        return;
+      }
+    }
+
+    const cleanText = stripMention(text, botInfo.username);
+    if (!cleanText) return;
+
+    await handleIncoming(ctx, cleanText);
+  });
+
+  // ─── Voice/audio message handler ──────────────────────────────────
+
+  b.on(["message:voice", "message:audio"], async (ctx) => {
+    const config = getConfig();
+
+    if (!config.voice.enabled || !config.voice.apiKey) {
+      const adminEntry = Object.entries(config.agents).find(([, a]) => a.admin);
+      const hint = adminEntry
+        ? "Voice transcription is not configured. Use /voice in the admin bot to enable it."
+        : "Voice transcription is not configured.";
+      await ctx.reply(hint);
+      return;
+    }
+
+    try {
+      await ctx.replyWithChatAction("typing");
+
+      const fileId = ctx.message.voice?.file_id ?? ctx.message.audio?.file_id;
+      if (!fileId) { await ctx.reply("Could not read audio file."); return; }
+
+      const file = await ctx.api.getFile(fileId);
+      const fileUrl = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
+      const resp = await fetch(fileUrl);
+      if (!resp.ok) { await ctx.reply("Failed to download voice file."); return; }
+
+      const buffer = Buffer.from(await resp.arrayBuffer());
+
+      if (buffer.length > 20 * 1024 * 1024) {
+        await ctx.reply("Audio file too large (max 20 MB).");
+        return;
+      }
+
+      const result = await transcribe(buffer, {
+        enabled: true,
+        provider: config.voice.provider,
+        apiKey: config.voice.apiKey,
+        model: config.voice.model,
+        language: config.voice.language,
+      });
+
+      if (!result.text?.trim()) {
+        await ctx.reply("(could not transcribe — empty result)");
+        return;
+      }
+
+      const cleanText = `[Voice] ${result.text.trim()}`;
+      slog.info("telegram", "Voice transcribed", {
+        agent: agentId, text: cleanText.slice(0, 160), provider: config.voice.provider,
+      });
+
+      await handleIncoming(ctx, cleanText);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      slog.error("telegram", "Voice processing failed", { agent: agentId, error: errMsg });
+      await ctx.reply(`Voice error: ${errMsg}`);
     }
   });
 

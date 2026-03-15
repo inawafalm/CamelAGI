@@ -62,6 +62,14 @@ retry:
   maxRetries: 3
   backoffMs: 1000    # Base backoff (exponential, capped at 30s)
 
+# ─── Voice Transcription ─────────────────────────────────────────
+# voice:
+#   enabled: true
+#   provider: groq        # groq (free) | openai | deepgram
+#   apiKey: gsk_xxx
+#   model: whisper-large-v3  # auto-selected per provider if omitted
+#   language: en           # optional BCP-47 language hint
+
 # ─── Concurrency Lanes ───────────────────────────────────────────
 lanes:
   main: 3       # Max concurrent user chat runs

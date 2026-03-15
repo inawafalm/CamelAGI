@@ -5,7 +5,8 @@ import type { Config } from "../core/config.js";
 import { loadConfig, saveConfig } from "../core/config.js";
 import { seedAgentWorkspace, agentMemoryDir } from "../workspace.js";
 import { requestBotApproval } from "./bot-approval.js";
-import type { WizardDef } from "./wizard.js";
+import { resolvePreset } from "../core/models.js";
+import type { WizardDef, WizardStep } from "./wizard.js";
 
 // ─── Presets ─────────────────────────────────────────────────────────
 
@@ -127,6 +128,88 @@ export function createSetupWizard(getConfig: () => Config): WizardDef {
   };
 }
 
+/** Build model selection steps — adapts to provider (simple list vs provider→model 2-step) */
+function buildModelSteps(getConfig: () => Config): WizardStep[] {
+  const config = getConfig();
+  const preset = resolvePreset(config.provider, config.baseUrl);
+
+  // Group models by provider prefix
+  const groups = new Map<string, string[]>();
+  for (const m of preset.models) {
+    const slash = m.indexOf("/");
+    const provider = slash > 0 ? m.slice(0, slash) : "__direct__";
+    if (!groups.has(provider)) groups.set(provider, []);
+    groups.get(provider)!.push(m);
+  }
+
+  const hasProviders = groups.size > 1 || (groups.size === 1 && !groups.has("__direct__"));
+
+  if (!hasProviders) {
+    // Simple provider (Anthropic, OpenAI, Ollama) — show models directly
+    return [{
+      id: "model",
+      prompt: `Model (current: ${config.model}):`,
+      columns: 1,
+      options: [
+        { label: `✓ ${config.model} (default)`, value: "__default__" },
+        ...preset.models
+          .filter(m => m !== config.model)
+          .map(m => ({ label: m, value: m })),
+      ],
+    }];
+  }
+
+  // Multi-provider (OpenRouter) — 2-step: pick provider, then model
+  const providerNames = [...groups.keys()];
+  const providerLabels: Record<string, string> = {
+    anthropic: "Anthropic",
+    openai: "OpenAI",
+    google: "Google",
+    deepseek: "DeepSeek",
+    "meta-llama": "Meta",
+    qwen: "Qwen",
+    mistralai: "Mistral",
+    "x-ai": "xAI",
+    cohere: "Cohere",
+    amazon: "Amazon",
+  };
+
+  return [
+    {
+      id: "modelProvider",
+      prompt: `Model (current: ${config.model}):\n\nPick a provider or type a custom model name:`,
+      columns: 2,
+      options: [
+        { label: `✓ Keep default`, value: "__default__" },
+        ...providerNames.map(p => ({
+          label: `${providerLabels[p] ?? p} (${groups.get(p)!.length})`,
+          value: p,
+        })),
+      ],
+    },
+    {
+      id: "model",
+      prompt: (data) => {
+        const p = providerLabels[data.modelProvider] ?? data.modelProvider;
+        return `${p} models:`;
+      },
+      columns: 1,
+      skip: (data) => data.modelProvider === "__default__",
+      options: (data) => {
+        const selected = data.modelProvider;
+        const models = groups.get(selected) ?? [];
+        return models
+          .filter(m => m !== config.model)
+          .map(m => {
+            const slash = m.indexOf("/");
+            const shortName = slash > 0 ? m.slice(slash + 1) : m;
+            return { label: shortName, value: m };
+          });
+      },
+    },
+  ];
+}
+
 export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: () => string): WizardDef {
   return {
     id: "newagent",
@@ -138,26 +221,23 @@ export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: (
       },
       {
         id: "description",
-        prompt: "What does this agent do? (one line, goes into SOUL.md):",
-      },
-      {
-        id: "model",
-        prompt: "Model:",
+        prompt: "Agent personality (SOUL.md):",
         options: [
           { label: "Use default", value: "__default__" },
-          { label: "Change", value: "__custom__" },
+          { label: "Customize", value: "__custom__" },
         ],
       },
       {
-        id: "modelCustom",
-        prompt: "Enter model name:",
-        skip: (data) => data.model !== "__custom__",
+        id: "descriptionCustom",
+        prompt: "What does this agent do? (one line, goes into SOUL.md):",
+        skip: (data) => data.description !== "__custom__",
       },
+      ...buildModelSteps(getConfig),
       {
         id: "token",
-        prompt: "Telegram bot token (create one in @BotFather):",
+        prompt: "Connect a Telegram bot?\n\nPaste a bot token from @BotFather, or skip:",
         options: [
-          { label: "Skip Telegram", value: "__skip__" },
+          { label: "Skip — no Telegram bot", value: "__skip__" },
         ],
       },
     ],
@@ -166,7 +246,7 @@ export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: (
 
       const existingIds = Object.keys(config.agents);
       const id = nameToId(data.name, existingIds);
-      const model = data.model === "__custom__" ? data.modelCustom : undefined;
+      const model = (data.modelProvider === "__default__" || data.model === "__default__") ? undefined : data.model;
 
       let tokenInfo = "";
       if (data.token && data.token !== "__skip__") {
@@ -177,7 +257,8 @@ export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: (
         tokenInfo = `\nTelegram: @${result.username}`;
       }
 
-      seedAgentWorkspace(id, data.name, data.description);
+      const description = data.description === "__default__" ? undefined : data.descriptionCustom;
+      seedAgentWorkspace(id, data.name, description);
 
       const agentConfig: Record<string, unknown> = { name: data.name };
       if (model) agentConfig.model = model;

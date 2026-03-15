@@ -7,7 +7,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import type Anthropic from "@anthropic-ai/sdk";
 import { loadConfig, ensureDirs, onConfigSaved, type Config } from "./core/config.js";
 import { createClient } from "./model.js";
-import { seedWorkspace, seedAgentWorkspace } from "./workspace.js";
+import { seedWorkspace } from "./workspace.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { startCronJob, stopAllCronJobs, startRuntimeJobs, setCronContext, type CronJob } from "./extensions/cron.js";
 import { configureLane, Lane } from "./runtime/lanes.js";
@@ -132,17 +132,17 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
     } catch { /* best effort */ }
   }
 
-  // Telegram
-  const hasTelegramBots = state.config.telegram.botToken || Object.values(state.config.agents).some((a) => a.telegram?.botToken);
-  if (opts.channels !== false && hasTelegramBots) {
+  // Channels (Telegram, Discord, Slack, etc.)
+  if (opts.channels !== false) {
     try {
-      const { startTelegram } = await import("./telegram.js");
-      const started = await startTelegram(() => state.config, () => state.systemPrompt);
-      if (started.length > 0) {
-        log(`  Telegram: ${started.length} bot(s) started [${started.join(", ")}]`);
+      const { loadChannels, startAllChannels } = await import("./channels/index.js");
+      await loadChannels(state.config);
+      const started = await startAllChannels(() => state.config, () => state.systemPrompt);
+      for (const [type, ids] of started) {
+        log(`  ${type}: ${ids.length} bot(s) started [${ids.join(", ")}]`);
       }
     } catch (err: unknown) {
-      slog.error("telegram", "Failed to start", { error: errorMessage(err) });
+      slog.error("channels", "Failed to start", { error: errorMessage(err) });
     }
   }
 
@@ -178,9 +178,11 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
     configureLane(Lane.Subagent, state.config.lanes.subagent);
     setCronContext(state.config, state.systemPrompt);
 
-    // Reconcile Telegram bots: start new ones, stop removed ones
+    // Reconcile channels: start new bots, stop removed ones
     if (channelsEnabled) {
-      reconcileTelegram(() => state.config, () => state.systemPrompt, log);
+      import("./channels/index.js")
+        .then(({ reconcileAllChannels }) => reconcileAllChannels(() => state.config, () => state.systemPrompt))
+        .catch(() => {});
     }
   });
 
@@ -191,9 +193,9 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
     stopAllCronJobs();
     for (const ws of state.clients) ws.close(1001, "Server shutting down");
     try {
-      const { stopTelegram } = await import("./telegram.js");
-      stopTelegram();
-    } catch { /* telegram not loaded */ }
+      const { stopAllChannels } = await import("./channels/index.js");
+      stopAllChannels();
+    } catch { /* channels not loaded */ }
     await new Promise<void>((resolve) => server.close(() => resolve()));
   };
 
@@ -210,63 +212,6 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
   return { port: actualPort, close, config: state.config, client: state.client, systemPrompt: state.systemPrompt };
 }
 
-/**
- * Reconcile running Telegram bots with current config.
- * Starts bots for new agents, stops bots for removed agents.
- */
-async function reconcileTelegram(
-  getConfig: () => Config,
-  getSystemPrompt: () => string,
-  log: (...args: unknown[]) => void,
-): Promise<void> {
-  try {
-    const { getActiveBotIds, startBot, stopBot } = await import("./telegram.js");
-    const running = new Set(getActiveBotIds());
-    const config = getConfig();
-    console.log(`[reconcile] running=[${[...running]}] configured=[${Object.keys(config.agents).filter(id => config.agents[id]?.telegram?.botToken)}]`);
-
-    // Start bots for new agents with telegram config
-    const usedTokens = new Set<string>();
-    for (const [id, agent] of Object.entries(config.agents)) {
-      if (!agent.telegram?.botToken) continue;
-      usedTokens.add(agent.telegram.botToken);
-      if (running.has(id)) continue;
-      try {
-        seedAgentWorkspace(id, agent.name);
-        await startBot(id, agent.telegram.botToken, getConfig, getSystemPrompt);
-        log(`  Hot-started bot: ${id}`);
-      } catch {
-        // Already starting, or other error — ignore
-      }
-    }
-
-    // Legacy top-level telegram bot
-    if (config.telegram.botToken && !usedTokens.has(config.telegram.botToken) && !running.has("telegram")) {
-      try {
-        await startBot("telegram", config.telegram.botToken, getConfig, getSystemPrompt);
-        log(`  Hot-started legacy telegram bot`);
-      } catch {}
-    }
-
-    // Stop bots whose agents were removed from config
-    for (const id of running) {
-      if (id === "telegram") {
-        // Legacy bot: stop if token was removed
-        if (!config.telegram.botToken || usedTokens.has(config.telegram.botToken)) {
-          stopBot(id);
-          log(`  Stopped bot: ${id} (token removed or claimed by agent)`);
-        }
-        continue;
-      }
-      if (!config.agents[id]?.telegram?.botToken) {
-        stopBot(id);
-        log(`  Stopped bot: ${id} (agent removed)`);
-      }
-    }
-  } catch {
-    // telegram module not loaded or other error
-  }
-}
 
 function watchConfig(
   _initialConfig: Config,

@@ -153,6 +153,7 @@ export function handleWsMessage(ctx: TuiCtx, msg: any): void {
     case "model.switched":
       state.currentModel = msg.model;
       state.currentThinking = msg.thinking;
+      if (msg.effort) state.currentEffort = msg.effort;
       state.sdkSessionId = undefined;
       updateHeader();
       updateFooter();

@@ -4,10 +4,12 @@ import { Bot, InlineKeyboard } from "grammy";
 
 export interface WizardStep {
   id: string;
-  prompt: string;
+  prompt: string | ((data: Record<string, string>) => string);
   validate?: (input: string, data: Record<string, string>) => string | null;
   transform?: (input: string) => string;
-  options?: { label: string; value: string }[];
+  options?: { label: string; value: string }[] | ((data: Record<string, string>) => { label: string; value: string }[]);
+  /** Number of buttons per row (default: all in one row) */
+  columns?: number;
   skip?: (data: Record<string, string>) => boolean;
 }
 
@@ -65,14 +67,19 @@ async function sendCurrentStep(wizard: ActiveWizard, bot: Bot): Promise<void> {
   }
 
   const step = wizard.def.steps[wizard.stepIndex];
-  if (step.options) {
+  const prompt = typeof step.prompt === "function" ? step.prompt(wizard.data) : step.prompt;
+  const options = typeof step.options === "function" ? step.options(wizard.data) : step.options;
+
+  if (options && options.length > 0) {
     const kb = new InlineKeyboard();
-    for (const opt of step.options) {
-      kb.text(opt.label, `wizard:${step.id}:${opt.value}`);
+    const cols = step.columns ?? options.length; // default: all in one row
+    for (let i = 0; i < options.length; i++) {
+      kb.text(options[i].label, `wizard:${step.id}:${options[i].value}`);
+      if ((i + 1) % cols === 0 && i + 1 < options.length) kb.row();
     }
-    await bot.api.sendMessage(wizard.chatId, step.prompt, { reply_markup: kb });
+    await bot.api.sendMessage(wizard.chatId, prompt, { reply_markup: kb });
   } else {
-    await bot.api.sendMessage(wizard.chatId, step.prompt);
+    await bot.api.sendMessage(wizard.chatId, prompt);
   }
 }
 

@@ -78,6 +78,13 @@ const schema = z.object({
     maxRetries: z.number().default(3),
     backoffMs: z.number().default(1000),
   }).default(() => ({ maxRetries: 3, backoffMs: 1000 })),
+  voice: z.object({
+    enabled: z.boolean().default(false),
+    provider: z.enum(["groq", "openai", "deepgram"]).default("groq"),
+    apiKey: z.string().optional(),
+    model: z.string().optional(),
+    language: z.string().optional(),
+  }).default(() => ({ enabled: false, provider: "groq" as const })),
   lanes: z.object({
     main: z.number().default(3),
     cron: z.number().default(1),
@@ -97,6 +104,12 @@ const schema = z.object({
       groups: z.object({
         mentionOnly: z.boolean().default(true),
       }).default(() => ({ mentionOnly: true })),
+    }).optional(),
+    discord: z.object({
+      botToken: z.string(),
+      allowedChannels: z.array(z.string()).default([]),
+      allowedRoles: z.array(z.string()).default([]),
+      mentionOnly: z.boolean().default(true),
     }).optional(),
   })).default(() => ({})),
   boot: z.boolean().default(true),

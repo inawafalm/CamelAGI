@@ -16,6 +16,7 @@ export interface TuiState {
   messages: Message[];
   currentModel: string;
   currentThinking: string;
+  currentEffort: string;
   sdkSessionId?: string;
   systemPrompt: string;
   toolsExpanded: boolean;

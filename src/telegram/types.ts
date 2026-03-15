@@ -7,6 +7,8 @@ export interface BotState {
   bot: Bot;
   botInfo: { id: number; username: string };
   runtimeModels: Map<number, string>;
+  runtimeThinking: Map<number, Config["thinking"]>;
+  runtimeEffort: Map<number, Config["effort"]>;
 }
 
 export interface ResolvedAgent {

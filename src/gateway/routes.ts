@@ -88,9 +88,9 @@ export function registerRoutes(app: Express, state: GatewayState): void {
     if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
     let runningIds: string[] = [];
     try {
-      const { getActiveBotIds } = await import("../telegram.js");
-      runningIds = getActiveBotIds();
-    } catch { /* telegram may not be loaded */ }
+      const { getAllChannels } = await import("../channels/registry.js");
+      runningIds = getAllChannels().flatMap(c => c.getActiveAgentIds());
+    } catch { /* channels may not be loaded */ }
     const agents = Object.entries(state.config.agents).map(([id, a]) => ({
       id,
       name: a.name,
