@@ -92,6 +92,16 @@ The config directory (`~/.camelagi/`) and file are created automatically on firs
 | `approvals.fallback` | `"deny" \| "allow"` | `"deny"` | Action on approval timeout. |
 | `approvals.forwardTo` | `number` | _(none)_ | Telegram chat ID to forward approval requests to when running headless. |
 
+### `voice` -- Voice Transcription
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `voice.enabled` | `boolean` | `false` | Enable voice message transcription. |
+| `voice.provider` | `"groq" \| "openai" \| "deepgram"` | `"groq"` | Transcription provider. |
+| `voice.apiKey` | `string` | _(none)_ | API key for the transcription provider. |
+| `voice.model` | `string` | _(none)_ | Model name (provider-specific). |
+| `voice.language` | `string` | _(none)_ | Language hint (e.g., `"en"`). |
+
 ### `retry` -- Error Retry
 
 | Field | Type | Default | Description |
@@ -123,11 +133,18 @@ Each agent entry has:
 | `effort` | `"low" \| "medium" \| "high" \| "max"` | _(none)_ | Override effort level. |
 | `maxTurns` | `number` | _(none)_ | Override max turns. |
 | `telegram` | `object` | _(none)_ | Telegram config for this agent (see below). |
+| `discord` | `object` | _(none)_ | Discord config for this agent (see below). |
 
 **Agent telegram sub-object:**
 - `botToken` (string, required) -- Separate bot token for this agent.
 - `allowedUsers` (number[], default `[]`) -- Allowed user IDs.
 - `groups.mentionOnly` (boolean, default `true`).
+
+**Agent discord sub-object:**
+- `botToken` (string, required) -- Discord bot token.
+- `allowedChannels` (string[], default `[]`) -- Channel IDs to respond in. Empty = all channels.
+- `allowedRoles` (string[], default `[]`) -- Role names allowed. Empty = all users.
+- `mentionOnly` (boolean, default `true`) -- Only respond when @mentioned in servers.
 
 ### `cron` -- Scheduled Jobs
 
@@ -256,7 +273,7 @@ Key details:
   - Updates `state.config` and `state.systemPrompt`.
   - Reconfigures concurrency lanes (`Lane.Main`, `Lane.Cron`, `Lane.Subagent`).
   - Updates cron context.
-  - Reconciles Telegram bots (starts new agents, stops removed ones).
+  - Reconciles all channels (starts new agents, stops removed ones).
 - **Error handling**: if `loadConfig()` throws (e.g., invalid YAML), the error is logged and the old config remains in effect.
 
 ---

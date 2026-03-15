@@ -45,20 +45,25 @@ Every running bot is tracked as a `BotState`:
 interface BotState {
   bot: Bot;
   botInfo: { id: number; username: string };
-  runtimeModels: Map<number, string>; // per-chat model overrides
+  runtimeModels: Map<number, string>;              // per-chat model overrides
+  runtimeThinking: Map<number, Config["thinking"]>; // per-chat thinking overrides
+  runtimeEffort: Map<number, Config["effort"]>;     // per-chat effort overrides
 }
 ```
 
-`runtimeModels` lets users switch models at runtime via `/model` without
-touching the config file. Overrides reset on `/clear` or process restart.
+Runtime maps let users switch model, thinking, and effort at runtime via
+`/model`, `/think`, and `/effort` without touching the config file. Overrides
+reset on `/clear` or process restart.
 
 ### Entry Point
 
-`src/telegram.ts` is the barrel module. `startTelegram(getConfig, getSystemPrompt)`
-iterates over all agents in the config, instantiates the correct bot type for
-each, and begins polling. It also handles a legacy path: if `config.telegram.botToken`
-is set and no agent reuses the same token, it starts a legacy agent bot with the
-ID `"telegram"`.
+Telegram is loaded via the pluggable channel system (`src/channels/`).
+`TelegramChannel` in `src/channels/telegram.ts` wraps `src/telegram.ts`, which
+is the barrel module. `startTelegram(getConfig, getSystemPrompt)` iterates over
+all agents in the config, instantiates the correct bot type for each, and begins
+polling. It also handles a legacy path: if `config.telegram.botToken` is set and
+no agent reuses the same token, it starts a legacy agent bot with the ID
+`"telegram"`.
 
 ---
 
@@ -127,6 +132,7 @@ The admin bot is a management interface. It does not run AI conversations.
 | `/status` | Shows provider, model, API key status, running/stopped bots, session count, and approval mode. |
 | `/restart [id]` | Restarts a specific bot or all non-admin bots. |
 | `/pairing` | Lists pending user access requests with Approve/Deny inline buttons. |
+| `/voice` | Configure voice transcription (Groq/OpenAI/Deepgram). If already configured, shows status with Reconfigure/Reset buttons. |
 | `/cancel` | Cancels the currently active wizard. |
 
 ### Callback Queries
@@ -141,7 +147,10 @@ The admin bot handles several callback query patterns:
 | `confirm:delete:<id>` / `confirm:cancel:<id>` | Confirms or cancels agent deletion. |
 | `clearsessions:<period>` | Deletes sessions older than 1d, 1w, or 1m. |
 | `pairing:approve:<code>` / `pairing:deny:<code>` | Approves (generates OTP) or denies a user pairing request. |
-| `botapproval:approve:<agentId>` / `botapproval:deny:<agentId>` | Approves and hot-starts a newly created agent bot, or denies it. |
+| `botapproval:approve:<agentId>` / `botapproval:deny:<agentId>` | Approves and hot-starts a newly created agent bot, or denies it. Handles "already running" gracefully. |
+| `voice:reconfigure` / `voice:reset` | Starts voice configuration or reset wizard. |
+| `agents:newagent` | Starts the /newagent wizard from the /agents display. |
+| `agents:restart` | Restarts all stopped bots from the /agents display. |
 
 ### Wizards
 
@@ -184,10 +193,9 @@ Provider presets are defined in `PRESETS`:
 Walks through:
 
 1. **Name** -- free text, required.
-2. **Description** -- one line, written to the agent's `SOUL.md`.
-3. **Model** -- "Use default" or "Change" (inline buttons).
-4. **Custom model name** -- free text (skipped if default was chosen).
-5. **Telegram bot token** -- free text or "Skip Telegram" button.
+2. **SOUL.md** -- "Use default" (OpenClaw template) or "Customize" (inline buttons). If customized, prompts for a one-line description.
+3. **Model** -- For simple providers (Anthropic, OpenAI, Ollama): shows models as inline buttons, one per row. For OpenRouter: 2-step flow — pick provider first (2 per row with model counts), then pick model from that provider.
+4. **Telegram bot token** -- free text or "Skip — no Telegram bot" button.
 
 On completion:
 
@@ -212,13 +220,24 @@ pipeline (agent loop, tool calls, streaming).
 | Command | Description |
 |---------|-------------|
 | `/start` | Greeting message. In groups, instructs to mention the bot. In DMs, shows the agent name and model. |
-| `/help` | Lists commands and current model/thinking/maxTurns config. |
-| `/clear` | Deletes the session and resets runtime model override for the chat. |
-| `/status` | Shows agent name, model, thinking mode, message count, estimated token usage, and cumulative API usage. |
+| `/help` | Lists commands and current model/thinking/effort/maxTurns config. |
+| `/clear` | Deletes the session and resets all runtime overrides (model, thinking, effort). |
+| `/status` | Shows agent name, model, thinking, effort, message count, estimated token usage, and cumulative API usage. |
 | `/model <name>` | Switches the model for the current chat at runtime. Does not persist across restarts. |
+| `/think [level]` | Shows current thinking level with inline buttons. Tap to switch (off/low/medium/high). |
+| `/effort [level]` | Shows current effort level with inline buttons. Tap to switch (low/medium/high/max). |
+| `/usage` | Shows detailed token usage for this session: input, output, cache read/write, API calls. |
 | `/compact` | Forces context compaction on the current session's history. |
+| `/voice` | Shows voice transcription status. If not configured, links to admin bot with clickable @username. |
+
+Admin-only commands (`/agents`, `/soul`, `/sessions`, `/config`, `/setup`, `/newagent`,
+`/deleteagent`, `/pairing`, `/restart`) are intercepted and redirect to the admin bot
+with a clickable `@username` link. This prevents accidental LLM token usage on
+management commands.
 
 ### Message Handling
+
+#### Text Messages
 
 When a text message arrives:
 
@@ -250,6 +269,17 @@ When a text message arrives:
 7. **Error handling** -- On failure, the error message replaces the draft
    message text, or is sent as a new message.
 
+#### Voice Messages
+
+When a voice or audio message arrives:
+
+1. Checks if voice transcription is configured (`config.voice.enabled`).
+2. If not configured, replies with a hint to set it up in the admin bot.
+3. Downloads the audio file via Telegram API (max 20 MB).
+4. Sends it to the configured transcription provider (Groq/OpenAI/Deepgram).
+5. Passes the transcribed text as `[Voice] <text>` to the shared `handleIncoming` handler.
+6. The message then follows the same orchestration flow as text messages.
+
 ### Approval Callback Queries
 
 Agent bots handle tool-approval callbacks:
@@ -259,6 +289,8 @@ Agent bots handle tool-approval callbacks:
 | `approve:<approvalId>:allow-once` | Allows the tool call once. |
 | `approve:<approvalId>:allow-always` | Allows the tool and remembers for the session. |
 | `approve:<approvalId>:deny` | Denies the tool call. |
+| `think:<level>` | Sets thinking level and updates the message to show `✓`. |
+| `effort:<level>` | Sets effort level and updates the message to show `✓`. |
 
 ### Session IDs
 
@@ -341,10 +373,11 @@ groups).
 
 **Source:** `src/telegram/resolve.ts`
 
-`resolveAgent(agentId, config, globalSystemPrompt, runtimeModel?)` produces a
+`resolveAgent(agentId, config, globalSystemPrompt, overrides?)` produces a
 `ResolvedAgent` object that merges agent-specific config with global defaults.
-This is called on every message, so config changes take effect immediately
-without restarting the bot.
+The `overrides` parameter accepts `{ model?, thinking?, effort? }` for per-chat
+runtime overrides. This is called on every message, so config changes take
+effect immediately without restarting the bot.
 
 ### Resolution Rules
 
@@ -559,12 +592,17 @@ telegram:
 
 | File | Purpose |
 |------|---------|
+| `src/channels/types.ts` | Channel interface |
+| `src/channels/telegram.ts` | TelegramChannel wrapper (implements Channel) |
+| `src/channels/registry.ts` | Channel registry (start/stop/reconcile) |
 | `src/telegram.ts` | Entry point, lifecycle management, active bot registry |
 | `src/telegram/admin-bot.ts` | Admin bot setup, commands, callback queries, wizards |
-| `src/telegram/agent-bot.ts` | Agent bot setup, commands, message handling, streaming |
-| `src/telegram/resolve.ts` | Agent config resolution (merges agent + global config) |
+| `src/telegram/agent-bot.ts` | Agent bot setup, commands, message handling, streaming, voice |
+| `src/telegram/resolve.ts` | Agent config resolution (merges agent + global config) with runtime overrides |
 | `src/telegram/draft-stream.ts` | Throttled live message editing for streaming responses |
 | `src/telegram/helpers.ts` | Group detection, mention handling, chunked sending, polling with retry |
-| `src/telegram/wizard.ts` | Generic wizard engine (step-by-step flows with timeout) |
+| `src/telegram/wizard.ts` | Generic wizard engine (step-by-step flows with timeout, dynamic options, columns) |
 | `src/telegram/wizards.ts` | Setup and new-agent wizard definitions, provider presets, token validation |
+| `src/telegram/transcribe.ts` | Voice transcription module (Groq/OpenAI/Deepgram) |
+| `src/telegram/voice-wizard.ts` | Voice configuration and reset wizards |
 | `src/telegram/types.ts` | Shared types (`BotState`, `ResolvedAgent`) |

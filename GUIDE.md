@@ -99,9 +99,10 @@ The fastest way to get started:
 │   CRUD /agents          │   │   { type: "switch_session" }
 │   /approvals/:id/decide │   │
 │                         │   │
-│  Telegram Bots:         │
-│   Admin bot (wizards)   │
-│   Agent bots (AI chat)  │
+│  Channels:              │
+│   Telegram (grammY)     │
+│   Discord (discord.js)  │
+│   + pluggable adapters  │
 └────────┬────────────────┘
          │
          ▼
@@ -188,7 +189,14 @@ src/
 ├── errors.ts           # Error helpers
 ├── chunker.ts          # Block-aware text chunker
 ├── telegram.ts         # Telegram bots via grammY (multi-agent)
-├── telegram-admin.ts   # Admin bot: wizards + control commands
+├── channels/
+│   ├── types.ts        # Channel interface
+│   ├── adapter.ts      # ChannelAdapter interface + RuntimeState
+│   ├── handler.ts      # Shared command handling + streaming + chunking
+│   ├── registry.ts     # Channel registry (start/stop/reconcile)
+│   ├── index.ts        # Lazy channel loader
+│   ├── telegram.ts     # TelegramChannel wrapper
+│   └── discord.ts      # Discord channel (discord.js)
 ├── bootstrap.ts        # First-time setup (token → admin bot)
 ├── approvals.ts        # Tool approval engine
 ├── approval-forward.ts # Headless approval forwarding
@@ -263,6 +271,19 @@ agents:
     telegram:
       botToken: "..."
       allowedUsers: [123456789]
+    discord:                     # optional Discord channel
+      botToken: "MTk..."
+      allowedChannels: []
+      allowedRoles: []
+      mentionOnly: true
+
+# Voice transcription
+voice:
+  enabled: false
+  provider: groq               # groq | openai | deepgram
+  # apiKey: gsk_...
+  # model: whisper-large-v3-turbo
+  # language: en
 
 # Legacy single-bot Telegram (deprecated — use agents instead)
 telegram:
@@ -352,6 +373,7 @@ The admin bot is a BotFather-style control plane. It uses conversational wizards
 | `/config` | View config or `/config <key> <value>` to update |
 | `/sessions` | List sessions with cleanup buttons |
 | `/pairing` | List pending access requests with Approve/Deny buttons |
+| `/voice` | Configure voice transcription (Groq/OpenAI/Deepgram) |
 | `/status` | System health (bots, API, sessions) |
 | `/restart` | Restart all bots or `/restart <id>` for one |
 | `/cancel` | Cancel active wizard |
@@ -367,7 +389,11 @@ Each non-admin agent bot has:
 | `/clear` | Clear chat history |
 | `/status` | Model, message count, usage |
 | `/model <name>` | Switch model (runtime) |
+| `/think` | Set thinking level (inline buttons) |
+| `/effort` | Set effort level (inline buttons) |
+| `/usage` | Token usage breakdown for this session |
 | `/compact` | Force history compaction |
+| `/voice` | Voice transcription info (redirects to admin if not configured) |
 
 ### How It Works
 
@@ -411,9 +437,25 @@ The TUI connects to an embedded gateway server via WebSocket. Features:
 - Status spinner (thinking, responding, tool use, subagent)
 - SDK session resume across messages
 
-**Slash commands:** `/help`, `/model`, `/config`, `/sessions`, `/session`, `/new`, `/clear`, `/tools`, `/skills`, `/context`, `/status`, `/compact`, `/setup`, `/soul`, `/exit`
+**Slash commands:** `/help`, `/model`, `/config`, `/sessions`, `/session`, `/new`, `/clear`, `/tools`, `/skills`, `/think`, `/effort`, `/context`, `/status`, `/compact`, `/setup`, `/agents`, `/soul`, `/exit`
 
 **Keyboard shortcuts:** `Ctrl+L` (model), `Ctrl+P` (session), `Ctrl+O` (tools), `Escape` (abort)
+
+### Channel System
+
+CamelAGI uses a pluggable channel architecture. Channels implement a common `Channel` interface for lifecycle management (start/stop/reconcile/hot-reload) and use a shared `ChannelAdapter` for command handling, streaming, and chunking. Adding a new channel means implementing one adapter file.
+
+**Shared across all channels:**
+- Command handling (`/help`, `/clear`, `/model`, `/think`, `/effort`, `/status`, `/usage`, `/compact`)
+- Message flow (orchestrate → stream → chunk)
+- Runtime overrides (per-conversation model/thinking/effort)
+- Session persistence
+
+**Channel-specific:**
+- Platform SDK (grammY, discord.js, etc.)
+- Auth/access control
+- Message format, reactions, inline UI
+- Rate limits and message size limits
 
 ### Telegram
 
@@ -431,6 +473,46 @@ The Telegram adapter uses grammY with multi-bot support:
 - Inline keyboards for approval requests
 - Compaction and retry
 - Auto-restart polling with exponential backoff
+
+### Voice Transcription
+
+Agent bots can receive and transcribe voice messages. Supported providers:
+
+| Provider | Config Key | Notes |
+|----------|-----------|-------|
+| Groq | `groq` | Free tier, fast, recommended |
+| OpenAI | `openai` | Whisper API |
+| Deepgram | `deepgram` | Real-time transcription |
+
+**Setup:** Use `/voice` in the admin bot to configure. The wizard walks through provider selection, API key, model, and language.
+
+**How it works:** When a voice message is received, the agent bot downloads the audio, sends it to the transcription provider, and passes the text to the LLM as `[Voice] transcribed text`.
+
+### Discord
+
+The Discord adapter uses discord.js with the following features:
+
+- Guild messages + DMs
+- **Mention-only mode** in servers (responds to @mention or replies to bot)
+- **Channel restriction** via `allowedChannels`
+- **Role restriction** via `allowedRoles`
+- **Streaming** — sends a message then edits it as text arrives (600ms throttle)
+- All shared commands (`/help`, `/clear`, `/model`, `/think`, `/effort`, `/status`, `/usage`, `/compact`)
+- Auto-chunking for responses >2000 chars (Discord limit)
+- Hot-reload — start/stop/reconcile on config change
+
+**Config:**
+
+```yaml
+agents:
+  myagent:
+    name: "My Agent"
+    discord:
+      botToken: "MTk..."
+      allowedChannels: []      # empty = all channels
+      allowedRoles: []          # empty = all users
+      mentionOnly: true         # require @mention in servers
+```
 
 ### User Pairing (Access Approval)
 
@@ -669,6 +751,7 @@ The doctor command includes security checks:
 | `openai` | OpenAI-compatible API client (multi-provider fallback) |
 | `@mariozechner/pi-tui` | Terminal UI framework |
 | `grammy` | Telegram bot framework |
+| `discord.js` | Discord bot framework |
 | `express` | HTTP server |
 | `ws` | WebSocket server |
 | `zod` | Schema validation |

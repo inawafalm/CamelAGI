@@ -33,6 +33,7 @@ All commands start with `/`. The TUI provides autocomplete for command names as 
 | `/tools` | Toggle tool output expand/collapse | Toggles between showing full tool output and collapsed summaries. Same as Ctrl+O. |
 | `/skills` | List active skills | Shows skills installed in `~/.camelagi/skills/`. |
 | `/think` | Show or set thinking level | Without an argument, shows the current level. With an argument (`off`, `low`, `medium`, `high`), sets the thinking budget, persists it, and notifies the gateway. |
+| `/effort` | Show or set effort level | Without an argument, shows the current level. With an argument (`low`, `medium`, `high`, `max`), sets the effort level, persists it, and notifies the gateway. |
 | `/context` | Show context breakdown | Displays a detailed report of all injected workspace files (AGENTS.md, SOUL.md, IDENTITY.md, etc.) with raw and injected character/token counts, plus system prompt size, skill count, tool count, and session history size. |
 | `/status` | Show session status | Sends a status request to the gateway and displays session ID, model, provider, message count, history tokens, cumulative API token usage, active runs, and SDK session ID. |
 | `/compact` | Force context compaction | Sends a compaction request to the gateway. The gateway compresses the conversation history to free up context window space. |
