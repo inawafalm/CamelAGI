@@ -192,8 +192,6 @@ Don't want to use Telegram? `camel chat` gives you a full terminal interface wit
 | | **CamelAGI** | **OpenClaw** |
 |---|---|---|
 | **Codebase size** | ~10K LOC | ~700K+ LOC |
-| **Package structure** | Single package | Monorepo |
-| **Terminal UI** | Full TUI with overlays & streaming | None |
 | **AI Agent runtime** | [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) — fully documented by Anthropic, easy to extend | pi-agent & custom abstractions |
 
 <br>
