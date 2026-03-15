@@ -2,6 +2,7 @@
 
 import type { Bot } from "grammy";
 import { BlockChunker } from "../chunker.js";
+import { markdownToTelegramHtml } from "./format.js";
 
 export function isGroupChat(chatType: string): boolean {
   return chatType === "group" || chatType === "supergroup";
@@ -25,7 +26,11 @@ export function stripMention(text: string, botUsername: string): string {
 
 export async function sendChunked(ctx: any, response: string) {
   if (response.length <= 4096) {
-    await ctx.reply(response);
+    try {
+      await ctx.reply(markdownToTelegramHtml(response), { parse_mode: "HTML" });
+    } catch {
+      await ctx.reply(response);
+    }
     return;
   }
 
@@ -40,7 +45,11 @@ export async function sendChunked(ctx: any, response: string) {
   chunker.flush();
 
   for (const chunk of chunks) {
-    await ctx.reply(chunk);
+    try {
+      await ctx.reply(markdownToTelegramHtml(chunk), { parse_mode: "HTML" });
+    } catch {
+      await ctx.reply(chunk);
+    }
   }
 }
 

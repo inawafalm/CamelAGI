@@ -41,4 +41,5 @@ export interface AgentOpts {
   provider?: string;
   baseUrl?: string;
   approvals?: { mode: ApprovalMode; allowlist: string[]; timeoutSeconds: number; fallback: "deny" | "allow"; forwardTo?: number };
+  mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
 }

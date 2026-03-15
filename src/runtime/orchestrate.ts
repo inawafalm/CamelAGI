@@ -126,6 +126,7 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
         provider: config.provider,
         baseUrl: config.baseUrl,
         approvals: config.approvals,
+        ...(Object.keys(config.mcp.servers).length > 0 && { mcpServers: config.mcp.servers }),
         ...(config.maxBudgetUsd && { maxBudgetUsd: config.maxBudgetUsd }),
         ...(resumeSessionId && { resumeSessionId }),
         ...(agentId && { agentId }),

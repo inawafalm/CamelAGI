@@ -5,7 +5,7 @@ import type { Config } from "../core/config.js";
 import type { AgentEvent } from "../agent.js";
 import type { ChannelAdapter, ResolvedAgentBase, RuntimeState } from "./adapter.js";
 import { createClient } from "../model.js";
-import { loadMessages, deleteSession } from "../session.js";
+import { loadMessages, deleteSession, listSessions } from "../session.js";
 import { isRunActive } from "../runtime/runs.js";
 import { queueOrProcess } from "../runtime/queue.js";
 import { compactHistory } from "../runtime/compact.js";
@@ -58,6 +58,8 @@ export function resolveAgentBase(
 export interface CommandResult {
   handled: boolean;
   response?: string;
+  /** If set, response should be sent as a file with this name */
+  asFile?: string;
 }
 
 /**
@@ -92,6 +94,8 @@ export async function handleCommand(
           "/effort <level> — Set effort (low|medium|high|max)",
           "/usage — Token usage for this session",
           "/skills — List active skills",
+          "/export — Export session as markdown file",
+          "/session [name] — Show or switch session",
           "/compact — Force compaction of chat history",
           "",
           `Model: ${agent.model}`,
@@ -106,6 +110,7 @@ export async function handleCommand(
       runtime.models.delete(conversationId);
       runtime.thinking.delete(conversationId);
       runtime.effort.delete(conversationId);
+      runtime.sessions.delete(conversationId);
       return { handled: true, response: "Session cleared." };
 
     case "status": {
@@ -202,6 +207,41 @@ export async function handleCommand(
         return { handled: true, response: "No skills installed.\n\nAdd skills to ~/.camelagi/skills/" };
       }
       return { handled: true, response: `Active skills: ${skills.join(", ")}` };
+    }
+
+    case "export": {
+      const messages = loadMessages(sessionId);
+      if (messages.length === 0) {
+        return { handled: true, response: "No messages to export." };
+      }
+      const md = messages.map(m =>
+        m.role === "user" ? `## You\n\n${m.content}` : `## Assistant\n\n${m.content}`
+      ).join("\n\n---\n\n");
+      return { handled: true, response: md, asFile: `${sessionId}.md` };
+    }
+
+    case "session": {
+      if (!arg) {
+        return { handled: true, response: `Current session: ${sessionId}` };
+      }
+      if (arg === "list") {
+        const sessions = listSessions();
+        if (sessions.length === 0) {
+          return { handled: true, response: "No sessions." };
+        }
+        const lines = sessions.slice(0, 20).map(s => {
+          const msgs = loadMessages(s.id).length;
+          return `${s.id} (${msgs} msgs)`;
+        });
+        return { handled: true, response: lines.join("\n") };
+      }
+      // Switch session
+      runtime.sessions.set(conversationId, arg);
+      const existing = loadMessages(arg);
+      return {
+        handled: true,
+        response: `Switched to session: ${arg}${existing.length > 0 ? ` (${existing.length} messages)` : " (new)"}`,
+      };
     }
 
     default:

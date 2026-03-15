@@ -63,6 +63,13 @@ const schema = z.object({
     enabled: z.boolean().default(true),
     deny: z.array(z.string()).default([]),
   }).default(() => ({ enabled: true, deny: [] })),
+  mcp: z.object({
+    servers: z.record(z.string(), z.object({
+      command: z.string(),
+      args: z.array(z.string()).default([]),
+      env: z.record(z.string(), z.string()).default({}),
+    })).default({}),
+  }).default(() => ({ servers: {} })),
   hooks: z.object({
     enabled: z.boolean().default(false),
   }).default(() => ({ enabled: false })),

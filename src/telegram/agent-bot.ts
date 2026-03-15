@@ -1,10 +1,10 @@
 // Agent bot: per-agent Telegram bot with commands and message handling
 
-import { Bot, InlineKeyboard } from "grammy";
+import { Bot, InlineKeyboard, InputFile } from "grammy";
 import { loadConfig, type Config } from "../core/config.js";
 import { createClient } from "../model.js";
 import type { AgentEvent } from "../agent.js";
-import { loadMessages, deleteSession } from "../session.js";
+import { loadMessages, deleteSession, listSessions } from "../session.js";
 import { isRunActive } from "../runtime/runs.js";
 import { queueOrProcess } from "../runtime/queue.js";
 import { compactHistory } from "../runtime/compact.js";
@@ -68,6 +68,8 @@ export async function setupAgentBot(
     { command: "effort", description: "Set effort level" },
     { command: "usage", description: "Token usage for this session" },
     { command: "skills", description: "List active skills" },
+    { command: "export", description: "Export session as markdown file" },
+    { command: "session", description: "Show or switch session" },
     { command: "compact", description: "Force compaction of chat history" },
     { command: "voice", description: "Voice transcription info" },
   ]).catch(() => {});
@@ -141,6 +143,8 @@ export async function setupAgentBot(
       "/effort <level> — Set effort (low|medium|high|max)",
       "/usage — Token usage for this session",
       "/skills — List active skills",
+      "/export — Export session as markdown file",
+      "/session — Show or switch session",
       "/compact — Force compaction of chat history",
       "",
       `Model: ${agent.model}`,
@@ -275,6 +279,41 @@ export async function setupAgentBot(
     } else {
       await ctx.reply(`Active skills: ${skills.join(", ")}`);
     }
+  });
+
+  b.command("export", async (ctx) => {
+    const sessionId = sid(ctx.chat.id);
+    const messages = loadMessages(sessionId);
+    if (messages.length === 0) {
+      await ctx.reply("No messages to export.");
+      return;
+    }
+    const md = messages.map(m =>
+      m.role === "user" ? `## You\n\n${m.content}` : `## Assistant\n\n${m.content}`
+    ).join("\n\n---\n\n");
+    const buf = Buffer.from(md, "utf-8");
+    await ctx.replyWithDocument(new InputFile(buf, `${sessionId}.md`));
+  });
+
+  b.command("session", async (ctx) => {
+    const arg = (ctx.match ?? "").trim();
+    const sessionId = sid(ctx.chat.id);
+    if (!arg) {
+      await ctx.reply(`Current session: ${sessionId}`);
+      return;
+    }
+    if (arg === "list") {
+      const sessions = listSessions();
+      if (sessions.length === 0) { await ctx.reply("No sessions."); return; }
+      const lines = sessions.slice(0, 20).map(s => {
+        const msgs = loadMessages(s.id).length;
+        return `${s.id} (${msgs} msgs)`;
+      });
+      await ctx.reply(lines.join("\n"));
+      return;
+    }
+    // TODO: session switching for Telegram requires runtime state
+    await ctx.reply(`Session switching coming soon. Current: ${sessionId}`);
   });
 
   b.command("compact", async (ctx) => {

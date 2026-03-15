@@ -159,7 +159,7 @@ async function startBot(
     if (!text) return;
 
     const conversationId = msg.channelId;
-    const sessionId = `dc:${agentId}:${conversationId}`;
+    const sessionId = runtime.sessions.get(conversationId) ?? `dc:${agentId}:${conversationId}`;
 
     const agent = resolveAgentBase(agentId, getConfig(), getSystemPrompt(), {
       model: runtime.models.get(conversationId),
@@ -180,7 +180,11 @@ async function startBot(
         getConfig,
       });
       if (result.handled && result.response) {
-        await sendSafe(msg, result.response);
+        if (result.asFile) {
+          await msg.reply({ files: [{ attachment: Buffer.from(result.response), name: result.asFile }] });
+        } else {
+          await sendSafe(msg, result.response);
+        }
         return;
       }
     }

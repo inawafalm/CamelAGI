@@ -1,6 +1,7 @@
 // Draft stream: throttled message editing for Telegram streaming
 
 import type { Bot } from "grammy";
+import { markdownToTelegramHtml } from "./format.js";
 
 export interface DraftStream {
   update: (text: string) => void;
@@ -31,16 +32,29 @@ export function createDraftStream(
     if (!messageId && !isFinal && trimmed.length < minInitialChars) return;
 
     const doSend = async () => {
+      const html = markdownToTelegramHtml(trimmed);
       try {
         if (!messageId) {
-          const sent = await api.sendMessage(chatId, trimmed);
+          const sent = await api.sendMessage(chatId, html, { parse_mode: "HTML" });
           messageId = sent.message_id;
         } else {
-          await api.editMessageText(chatId, messageId, trimmed);
+          await api.editMessageText(chatId, messageId, html, { parse_mode: "HTML" });
         }
         lastSentText = trimmed;
         lastSentAt = Date.now();
-      } catch { /* ignore */ }
+      } catch {
+        // Fallback: send without formatting if HTML parsing fails
+        try {
+          if (!messageId) {
+            const sent = await api.sendMessage(chatId, trimmed);
+            messageId = sent.message_id;
+          } else {
+            await api.editMessageText(chatId, messageId, trimmed);
+          }
+          lastSentText = trimmed;
+          lastSentAt = Date.now();
+        } catch { /* ignore */ }
+      }
     };
 
     inflight = doSend();

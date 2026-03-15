@@ -157,7 +157,7 @@ export async function runAgentSdk(
       systemPrompt,
       allowedTools: [...BUILTIN_TOOLS],
       ...(disallowedTools && { disallowedTools }),
-      mcpServers: { camelagi: mcpServer },
+      mcpServers: { camelagi: mcpServer, ...(opts?.mcpServers ?? {}) },
       maxTurns: opts?.maxTurns ?? DEFAULT_MAX_TURNS,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,

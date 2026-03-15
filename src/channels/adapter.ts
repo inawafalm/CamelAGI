@@ -25,6 +25,8 @@ export interface RuntimeState {
   models: Map<string, string>;
   thinking: Map<string, Config["thinking"]>;
   effort: Map<string, Config["effort"]>;
+  /** Session override: conversationId → custom sessionId (for shared sessions) */
+  sessions: Map<string, string>;
 }
 
 export function createRuntimeState(): RuntimeState {
@@ -32,6 +34,7 @@ export function createRuntimeState(): RuntimeState {
     models: new Map(),
     thinking: new Map(),
     effort: new Map(),
+    sessions: new Map(),
   };
 }
 
@@ -48,6 +51,9 @@ export interface ChannelAdapter {
 
   /** Set a status indicator (emoji reaction, typing, etc.) — best effort */
   setStatus(conversationId: string, status: "received" | "thinking" | "tool" | "extended_thinking" | "done" | "error"): Promise<void>;
+
+  /** Send a file (for exports). Optional — falls back to sending as text. */
+  sendFile?(conversationId: string, filename: string, content: string): Promise<void>;
 
   /** Max characters per message (Telegram: 4096, Discord: 2000, Slack: 4000) */
   maxMessageLength: number;
