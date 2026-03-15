@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { listPendingRequests, approveRequest, denyRequest } from "../telegram/pairing.js";
 import { listPendingBotApprovals, approveBotApproval, denyBotApproval } from "../telegram/bot-approval.js";
-import { notifyUserOtpRequired, notifyUserOfDenial } from "../telegram/pairing-notify.js";
+import { notifyUserApproved, notifyUserOfDenial } from "../telegram/pairing-notify.js";
 import type { GatewayState } from "./state.js";
 import { checkAuth, logMessage } from "./state.js";
 
@@ -184,11 +184,11 @@ export function registerRoutes(app: Express, state: GatewayState): void {
     if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
     const request = approveRequest(req.params.code);
     if (request) {
-      res.json({ ok: true, otp: request.otp, userId: request.userId, agentId: request.agentId });
-      // Notify the Telegram user to enter the OTP
+      res.json({ ok: true, userId: request.userId, agentId: request.agentId });
+      // Notify the Telegram user they've been approved
       try {
         const { getActiveBots } = await import("../telegram.js");
-        await notifyUserOtpRequired(request, getActiveBots());
+        await notifyUserApproved(request, getActiveBots());
       } catch { /* telegram may not be running */ }
     } else {
       res.status(404).json({ error: "Request not found or expired" });

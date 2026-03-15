@@ -401,40 +401,12 @@ export async function runBootstrap(tokenArg?: string) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         chat_id: pairingRequest.chatId,
-        text: "✅ Approved!\n\nEnter the 5-digit verification code to complete setup.",
+        text: "Access approved! You are now the admin.",
       }),
     });
   } catch { /* best effort */ }
 
-  ora({ indent: 2 }).succeed("Approved!");
-  console.log(`\n  \x1b[36m┌──────────────────────────────────────────┐\x1b[0m`);
-  console.log(`  \x1b[36m│\x1b[0m                                          \x1b[36m│\x1b[0m`);
-  console.log(`  \x1b[36m│\x1b[0m   Your verification code:  \x1b[1m\x1b[33m${approved.otp}\x1b[0m          \x1b[36m│\x1b[0m`);
-  console.log(`  \x1b[36m│\x1b[0m                                          \x1b[36m│\x1b[0m`);
-  console.log(`  \x1b[36m│\x1b[0m   Enter this code in the Telegram chat.  \x1b[36m│\x1b[0m`);
-  console.log(`  \x1b[36m│\x1b[0m                                          \x1b[36m│\x1b[0m`);
-  console.log(`  \x1b[36m└──────────────────────────────────────────┘\x1b[0m\n`);
-
-  const otpSpinner = ora({ text: "Waiting for OTP verification...", indent: 2 }).start();
-
-  // Poll for OTP completion
-  let verified = false;
-  for (let i = 0; i < 300; i++) {
-    const still = listPendingRequests().find(
-      (r) => r.userId === pairingRequest!.userId && r.agentId === "admin",
-    );
-    if (!still) {
-      verified = true;
-      break;
-    }
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-
-  if (verified) {
-    otpSpinner.succeed(`${userLabel} verified! You are now the admin.`);
-  } else {
-    otpSpinner.fail("OTP timed out. Retry in Telegram later.");
-  }
+  ora({ indent: 2 }).succeed(`${userLabel} approved! You are now the admin.`);
 
   // ─── Step 3: API Setup (optional) ─────────────────────────────────
 

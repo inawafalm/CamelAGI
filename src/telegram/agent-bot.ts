@@ -17,7 +17,7 @@ import type { BotState } from "./types.js";
 import { resolveAgent } from "./resolve.js";
 import { createDraftStream } from "./draft-stream.js";
 import { isGroupChat, shouldRespondInGroup, stripMention, sendChunked, startPolling } from "./helpers.js";
-import { hasPendingRequest, createPairingRequest, verifyOtp } from "./pairing.js";
+import { hasPendingRequest, createPairingRequest } from "./pairing.js";
 import { notifyAdminOfPairing } from "./pairing-notify.js";
 import { log as slog } from "../core/log.js";
 import { transcribe } from "./transcribe.js";
@@ -70,30 +70,23 @@ export async function setupAgentBot(
     { command: "voice", description: "Voice transcription info" },
   ]).catch(() => {});
 
-  // Track users verified via OTP — persists for this process lifetime
-  const otpVerifiedUsers = new Set<number>();
-
   /** Check if userId is allowed for this agent (in-memory + file fallback) */
   function isUserAllowed(userId: number): boolean {
-    if (otpVerifiedUsers.has(userId)) return true;
-    const agent = getAgent(0); // just need allowedUsers, chatId doesn't matter
+    const agent = getAgent(0);
     if (agent.allowedUsers.includes(userId)) return true;
-    // Fallback: read config file directly
+    // Fallback: read config file directly (handles hot-reload delay)
     try {
       const fresh = loadConfig();
       const freshAgent = agentId === "telegram"
         ? fresh.telegram
         : fresh.agents[agentId]?.telegram;
       const freshAllowed = freshAgent?.allowedUsers ?? [];
-      if (freshAllowed.includes(userId)) {
-        otpVerifiedUsers.add(userId);
-        return true;
-      }
+      if (freshAllowed.includes(userId)) return true;
     } catch {}
     return false;
   }
 
-  // Access control with pairing + OTP verification
+  // Access control — admin approves, user gets instant access
   b.use(async (ctx, next) => {
     const agent = getAgent(ctx.chat?.id ?? 0);
     if (agent.allowedUsers.length === 0) { await next(); return; }
@@ -104,45 +97,14 @@ export async function setupAgentBot(
     // Unauthorized user in group — silent reject
     if (ctx.chat && isGroupChat(ctx.chat.type)) return;
 
-    // Check if user has a pending request
+    // Check if user already has a pending request
     const pending = hasPendingRequest(userId, agentId);
-
-    if (pending?.status === "otp_pending") {
-      const text = ctx.message && "text" in ctx.message ? ctx.message.text?.trim() : undefined;
-      if (!text) {
-        await ctx.reply("Please enter the 5-digit verification code.");
-        return;
-      }
-
-      if (/^\d{5}$/.test(text)) {
-        const result = verifyOtp(userId, agentId, text);
-        if (result.ok) {
-          otpVerifiedUsers.add(userId);
-          console.log(`[agent-bot] OTP verified for userId=${userId}, agent=${agentId}`);
-          await ctx.reply("Verification complete. You now have access.");
-          await next();
-          return;
-        }
-        const msgs: Record<string, string> = {
-          expired: "Verification code expired. Please request access again.",
-          locked: "Too many failed attempts. Please request access again.",
-          wrong: "Invalid code. Please try again.",
-          not_found: "No pending verification found. Please request access again.",
-        };
-        await ctx.reply(msgs[result.reason] ?? "Invalid code.");
-        return;
-      }
-
-      await ctx.reply("Admin has approved your request. Please enter the 5-digit verification code to complete access.");
-      return;
-    }
-
     if (pending) {
       await ctx.reply(`Your access request is pending approval.\nCode: ${pending.code}`);
       return;
     }
 
-    console.log(`[agent-bot] Creating pairing request: userId=${userId}, agent=${agentId}, otpSetSize=${otpVerifiedUsers.size}`);
+    // Create new pairing request
     const request = createPairingRequest(
       userId, agentId, ctx.chat!.id,
       ctx.from?.username, ctx.from?.first_name,

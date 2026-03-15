@@ -41,8 +41,8 @@ export function notifyAdminOfPairing(
   }
 }
 
-/** Notify user that admin approved — they need to enter OTP */
-export async function notifyUserOtpRequired(
+/** Notify user that admin approved — they now have access */
+export async function notifyUserApproved(
   request: PairingRequest,
   activeBots: Map<string, BotState>,
 ): Promise<void> {
@@ -52,7 +52,7 @@ export async function notifyUserOtpRequired(
   try {
     await botState.bot.api.sendMessage(
       request.chatId,
-      "Your request has been approved.\n\nPlease enter the 5-digit verification code to complete access.",
+      "Access approved! You can now use this bot.",
     );
   } catch { /* user may have blocked the bot */ }
 }

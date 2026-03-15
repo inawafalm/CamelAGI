@@ -15,8 +15,8 @@ import { createSetupWizard, createNewAgentWizard } from "./wizards.js";
 import { createVoiceWizard, createVoiceResetWizard } from "./voice-wizard.js";
 import type { WizardDef } from "./wizard.js";
 import { formatAge } from "./helpers.js";
-import { approveRequest, denyRequest, listPendingRequests, hasPendingRequest, createPairingRequest, verifyOtp } from "./pairing.js";
-import { notifyUserOtpRequired, notifyUserOfDenial } from "./pairing-notify.js";
+import { approveRequest, denyRequest, listPendingRequests, hasPendingRequest, createPairingRequest } from "./pairing.js";
+import { notifyUserApproved, notifyUserOfDenial } from "./pairing-notify.js";
 import { isGroupChat } from "./helpers.js";
 import {
   listPendingBotApprovals,
@@ -87,93 +87,38 @@ export async function setupAdminBot(
     { command: "cancel", description: "Cancel active wizard" },
   ]).catch(() => {});
 
-  // Track users verified via OTP — persists for this process lifetime
-  const otpVerifiedUsers = new Set<number>();
-
-  /** Check if userId is in allowedUsers for this agent (reads config FILE, not memory) */
+  /** Check if userId is allowed for this agent */
   function isUserAllowed(userId: number): boolean {
-    // 1. Fast: in-memory Set
-    if (otpVerifiedUsers.has(userId)) {
-      console.log(`[admin-bot] isUserAllowed(${userId}): YES (otpVerifiedUsers set, size=${otpVerifiedUsers.size})`);
-      return true;
-    }
-    // 2. Fast: in-memory config
     const memAgent = getConfig().agents[agentId];
     const memAllowed = memAgent?.telegram?.allowedUsers ?? [];
-    if (memAllowed.includes(userId)) {
-      console.log(`[admin-bot] isUserAllowed(${userId}): YES (in-memory config, allowedUsers=[${memAllowed}])`);
-      return true;
-    }
-    // 3. Slow fallback: read config file directly (handles stale memory / process restart)
+    if (memAllowed.includes(userId)) return true;
+    // Fallback: read config file directly (handles hot-reload delay)
     try {
       const freshConfig = loadConfig();
       const freshAgent = freshConfig.agents[agentId];
       const freshAllowed = freshAgent?.telegram?.allowedUsers ?? [];
-      if (freshAllowed.includes(userId)) {
-        otpVerifiedUsers.add(userId); // cache for next time
-        console.log(`[admin-bot] isUserAllowed(${userId}): YES (file fallback, allowedUsers=[${freshAllowed}])`);
-        return true;
-      }
-      console.log(`[admin-bot] isUserAllowed(${userId}): NO — otpSet=[${[...otpVerifiedUsers]}] memAllowed=[${memAllowed}] fileAllowed=[${freshAllowed}] agentExists=${!!memAgent} fileAgentExists=${!!freshAgent}`);
-    } catch (err) {
-      console.error(`[admin-bot] isUserAllowed(${userId}): NO — file fallback THREW: ${err}`);
-    }
+      if (freshAllowed.includes(userId)) return true;
+    } catch {}
     return false;
   }
 
-  // Access control with pairing + OTP verification
+  // Access control — admin approves, user gets instant access
   b.use(async (ctx, next) => {
     const userId = ctx.from?.id;
     if (!userId) return;
-
-    // Authorized check (in-memory + file fallback)
     if (isUserAllowed(userId)) { await next(); return; }
 
     // Groups: silent reject for unauthorized users
     if (ctx.chat && isGroupChat(ctx.chat.type)) return;
 
-    // Check if user has a pending request
+    // Check if user already has a pending request
     const pending = hasPendingRequest(userId, agentId);
-
-    if (pending?.status === "otp_pending") {
-      // User approved by macOS app, waiting for OTP
-      const text = ctx.message && "text" in ctx.message ? ctx.message.text?.trim() : undefined;
-      if (!text) {
-        await ctx.reply("Please enter the 5-digit verification code from your Camel app.");
-        return;
-      }
-
-      if (/^\d{5}$/.test(text)) {
-        const result = verifyOtp(userId, agentId, text);
-        if (result.ok) {
-          otpVerifiedUsers.add(userId);
-          console.log(`[admin-bot] OTP verified for userId=${userId}, agent=${agentId}, setSize=${otpVerifiedUsers.size}`);
-          await ctx.reply("Verification complete. You are now an admin.");
-          await next();
-          return;
-        }
-        const msgs: Record<string, string> = {
-          expired: "Verification code expired. Please request access again.",
-          locked: "Too many failed attempts. Please request access again.",
-          wrong: "Invalid code. Please try again.",
-          not_found: "No pending verification found. Please request access again.",
-        };
-        await ctx.reply(msgs[result.reason] ?? "Invalid code.");
-        return;
-      }
-
-      // Not a 5-digit number
-      await ctx.reply("Enter the 5-digit verification code shown in your Camel app.");
-      return;
-    }
-
     if (pending) {
       await ctx.reply(`Your access request is pending approval.\nCode: ${pending.code}`);
       return;
     }
 
-    // Not authorized and no pending request — create one
-    console.log(`[admin-bot] Creating pairing request: userId=${userId}, agent=${agentId}, otpSetSize=${otpVerifiedUsers.size}, otpHas=${otpVerifiedUsers.has(userId)}`);
+    // Create new pairing request
     const request = createPairingRequest(
       userId, agentId, ctx.chat!.id,
       ctx.from?.username, ctx.from?.first_name,
@@ -283,10 +228,10 @@ export async function setupAdminBot(
       if (request) {
         try {
           await ctx.editMessageText(
-            `${ctx.callbackQuery.message?.text ?? ""}\n\n-> Approved (OTP: ${request.otp})\nUser must enter this code in chat.`,
+            `${ctx.callbackQuery.message?.text ?? ""}\n\n-> Approved`,
           );
         } catch {}
-        await notifyUserOtpRequired(request, activeBots);
+        await notifyUserApproved(request, activeBots);
       } else {
         try { await ctx.editMessageText("Request expired or already handled."); } catch {}
       }
@@ -711,17 +656,12 @@ export async function setupAdminBot(
     for (const r of requests) {
       const userLabel = r.username ? `@${r.username}` : r.firstName ?? String(r.userId);
       const age = formatAge(r.requestedAt);
-      const statusLabel = r.status === "otp_pending" ? `\nStatus: Waiting for OTP (${r.otp})` : "";
-      const text = `Pending request\n\nUser: ${userLabel} (${r.userId})\nAgent: ${r.agentId}\nCode: ${r.code}\nRequested: ${age}${statusLabel}`;
+      const text = `Pending request\n\nUser: ${userLabel} (${r.userId})\nAgent: ${r.agentId}\nCode: ${r.code}\nRequested: ${age}`;
 
-      if (r.status === "pending") {
-        const kb = new InlineKeyboard()
-          .text("Approve", `pairing:approve:${r.code}`)
-          .text("Deny", `pairing:deny:${r.code}`);
-        await ctx.reply(text, { reply_markup: kb });
-      } else {
-        await ctx.reply(text);
-      }
+      const kb = new InlineKeyboard()
+        .text("Approve", `pairing:approve:${r.code}`)
+        .text("Deny", `pairing:deny:${r.code}`);
+      await ctx.reply(text, { reply_markup: kb });
     }
   });
 
