@@ -58,22 +58,31 @@ export function loadSkills(): Skill[] {
 
 /**
  * Format skills for injection into the system prompt.
+ * Uses progressive disclosure: only metadata is injected upfront.
+ * The model reads the full SKILL.md on demand using the read tool.
  */
-export function formatSkillsForPrompt(skills: Skill[], maxChars = MAX_SKILLS_TOTAL_CHARS): string {
+export function formatSkillsForPrompt(skills: Skill[], _maxChars = MAX_SKILLS_TOTAL_CHARS): string {
   if (skills.length === 0) return "";
 
-  const sections: string[] = ["## Active Skills\n"];
-  let totalChars = 0;
+  const lines: string[] = [
+    "## Skills",
+    "",
+    "The following skills are available. When a user's request matches a skill,",
+    "read its SKILL.md file to get detailed instructions, then follow them.",
+    "",
+    "<available_skills>",
+  ];
 
   for (const skill of skills) {
-    const section = `### ${skill.name}${skill.description ? ` — ${skill.description}` : ""}\n\n${skill.content}\n`;
-
-    if (totalChars + section.length > maxChars) break;
-    totalChars += section.length;
-    sections.push(section);
+    const desc = skill.description ? `: ${skill.description}` : "";
+    lines.push(`  <skill name="${skill.name}" path="${skill.path}"${desc} />`);
   }
 
-  return sections.join("\n");
+  lines.push("</available_skills>");
+  lines.push("");
+  lines.push("To use a skill: read its SKILL.md path above, then follow the instructions inside.");
+
+  return lines.join("\n");
 }
 
 function parseFrontmatter(raw: string): { frontmatter: Record<string, string>; content: string } {

@@ -10,9 +10,10 @@ import { isRunActive } from "../runtime/runs.js";
 import { queueOrProcess } from "../runtime/queue.js";
 import { compactHistory } from "../runtime/compact.js";
 import { orchestrate } from "../runtime/orchestrate.js";
-import { getSessionUsage, formatUsageSummary } from "../usage.js";
+import { getSessionUsage, formatUsageSummary, formatTokens } from "../usage.js";
 import { CHARS_PER_TOKEN } from "../core/constants.js";
 import { BlockChunker } from "../chunker.js";
+import { listSkillNames } from "../extensions/skills.js";
 import { log as slog } from "../core/log.js";
 
 // ─── Agent resolution (channel-agnostic) ─────────────────────────────
@@ -89,6 +90,8 @@ export async function handleCommand(
           "/model <name> — Switch model for this chat",
           "/think <level> — Set thinking (off|low|medium|high)",
           "/effort <level> — Set effort (low|medium|high|max)",
+          "/usage — Token usage for this session",
+          "/skills — List active skills",
           "/compact — Force compaction of chat history",
           "",
           `Model: ${agent.model}`,
@@ -172,6 +175,33 @@ export async function handleCommand(
         return { handled: true, response: `Compacted: ${history.length} -> ${result.length} messages` };
       }
       return { handled: true, response: `History is already compact (${history.length} messages).` };
+    }
+
+    case "usage": {
+      const usage = getSessionUsage(sessionId);
+      const messages = loadMessages(sessionId);
+      if (usage.calls === 0) {
+        return { handled: true, response: "No usage yet in this session." };
+      }
+      const total = usage.totalInput + usage.totalOutput;
+      const lines = [
+        `Token usage this session:\n`,
+        `Total: ${formatTokens(total)} tokens`,
+        `  Input:  ${formatTokens(usage.totalInput)}`,
+        `  Output: ${formatTokens(usage.totalOutput)}`,
+      ];
+      if (usage.totalCacheRead > 0) lines.push(`  Cache read:  ${formatTokens(usage.totalCacheRead)}`);
+      if (usage.totalCacheWrite > 0) lines.push(`  Cache write: ${formatTokens(usage.totalCacheWrite)}`);
+      lines.push("", `API calls: ${usage.calls}`, `Messages: ${messages.length}`);
+      return { handled: true, response: lines.join("\n") };
+    }
+
+    case "skills": {
+      const skills = listSkillNames();
+      if (skills.length === 0) {
+        return { handled: true, response: "No skills installed.\n\nAdd skills to ~/.camelagi/skills/" };
+      }
+      return { handled: true, response: `Active skills: ${skills.join(", ")}` };
     }
 
     default:

@@ -9,7 +9,7 @@ import { isRunActive } from "../runtime/runs.js";
 import { queueOrProcess } from "../runtime/queue.js";
 import { compactHistory } from "../runtime/compact.js";
 import { orchestrate } from "../runtime/orchestrate.js";
-import { getSessionUsage, formatUsageSummary } from "../usage.js";
+import { getSessionUsage, formatUsageSummary, formatTokens } from "../usage.js";
 import { CHARS_PER_TOKEN } from "../core/constants.js";
 import { submitDecision, type ApprovalDecision } from "../extensions/approvals.js";
 import { registerForwardBot } from "../extensions/approval-forward.js";
@@ -19,6 +19,7 @@ import { createDraftStream } from "./draft-stream.js";
 import { isGroupChat, shouldRespondInGroup, stripMention, sendChunked, startPolling } from "./helpers.js";
 import { hasPendingRequest, createPairingRequest } from "./pairing.js";
 import { notifyAdminOfPairing } from "./pairing-notify.js";
+import { listSkillNames } from "../extensions/skills.js";
 import { log as slog } from "../core/log.js";
 import { transcribe } from "./transcribe.js";
 
@@ -66,6 +67,7 @@ export async function setupAgentBot(
     { command: "think", description: "Set thinking level" },
     { command: "effort", description: "Set effort level" },
     { command: "usage", description: "Token usage for this session" },
+    { command: "skills", description: "List active skills" },
     { command: "compact", description: "Force compaction of chat history" },
     { command: "voice", description: "Voice transcription info" },
   ]).catch(() => {});
@@ -137,6 +139,8 @@ export async function setupAgentBot(
       "/model <name> — Switch model for this chat",
       "/think <level> — Set thinking (off|low|medium|high)",
       "/effort <level> — Set effort (low|medium|high|max)",
+      "/usage — Token usage for this session",
+      "/skills — List active skills",
       "/compact — Force compaction of chat history",
       "",
       `Model: ${agent.model}`,
@@ -239,6 +243,38 @@ export async function setupAgentBot(
     runtimeEffort.set(ctx.chat!.id, level);
     try { await ctx.editMessageText(`Effort: ${level} ✓`); } catch {}
     await ctx.answerCallbackQuery();
+  });
+
+  b.command("usage", async (ctx) => {
+    const sessionId = sid(ctx.chat.id);
+    const usage = getSessionUsage(sessionId);
+    const messages = loadMessages(sessionId);
+
+    if (usage.calls === 0) {
+      await ctx.reply("No usage yet in this session.");
+      return;
+    }
+
+    const total = usage.totalInput + usage.totalOutput;
+    const lines = [
+      `Token usage this session:\n`,
+      `Total: ${formatTokens(total)} tokens`,
+      `  Input:  ${formatTokens(usage.totalInput)}`,
+      `  Output: ${formatTokens(usage.totalOutput)}`,
+    ];
+    if (usage.totalCacheRead > 0) lines.push(`  Cache read:  ${formatTokens(usage.totalCacheRead)}`);
+    if (usage.totalCacheWrite > 0) lines.push(`  Cache write: ${formatTokens(usage.totalCacheWrite)}`);
+    lines.push("", `API calls: ${usage.calls}`, `Messages: ${messages.length}`);
+    await ctx.reply(lines.join("\n"));
+  });
+
+  b.command("skills", async (ctx) => {
+    const skills = listSkillNames();
+    if (skills.length === 0) {
+      await ctx.reply("No skills installed.\n\nAdd skills to ~/.camelagi/skills/");
+    } else {
+      await ctx.reply(`Active skills: ${skills.join(", ")}`);
+    }
   });
 
   b.command("compact", async (ctx) => {
