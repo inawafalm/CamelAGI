@@ -3,6 +3,7 @@
 // All agent execution flows through the gateway server.
 
 import { resolve, allCommands } from "./cli/registry.js";
+import { printUpdateNotice } from "./core/update-check.js";
 
 // Register all commands (side-effect imports)
 import "./cli/cmd-reset.js";
@@ -22,9 +23,15 @@ import "./cli/cmd-pairing.js";
 
 const args = process.argv.slice(2);
 
+// Non-blocking update check on every invocation
+printUpdateNotice();
+
 // camelagi --version / -v
 if (args[0] === "--version" || args[0] === "-v") {
-  console.log("0.5.0");
+  const { createRequire } = await import("node:module");
+  const require = createRequire(import.meta.url);
+  const pkg = require("../package.json") as { version: string };
+  console.log(pkg.version);
   process.exit(0);
 }
 

@@ -41,6 +41,21 @@
     "typescript": "^5.7.x",
     "vitest": "^3.x"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inawafalm/CamelAGI.git"
+  },
+  "homepage": "https://github.com/inawafalm/CamelAGI#readme",
+  "bugs": {
+    "url": "https://github.com/inawafalm/CamelAGI/issues"
+  },
+  "files": [
+    "dist/",
+    "camelagi.mjs",
+    "config.example.yaml",
+    "README.md",
+    "LICENSE"
+  ],
   "license": "MIT",
   "author": "Nawaf Almutairi",
   "keywords": [

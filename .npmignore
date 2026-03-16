@@ -1,0 +1,12 @@
+src/
+test/
+featuresDocs/
+assets/
+.claude/
+.github/
+tsconfig.json
+vitest.config.ts
+esbuild.gateway.mjs
+*.ts
+!dist/**
+node_modules/
