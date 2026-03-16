@@ -12,11 +12,110 @@ import { seedWorkspace, seedAgentWorkspace } from "./workspace.js";
 import { PROVIDER_PRESETS, fetchOpenRouterModels } from "./core/models.js";
 import { listPendingRequests, approveRequest } from "./telegram/pairing.js";
 
+// ─── ANSI helpers ────────────────────────────────────────────────────
+
+const C = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  cyan: "\x1b[36m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  red: "\x1b[31m",
+  gray: "\x1b[90m",
+  white: "\x1b[37m",
+  bgCyan: "\x1b[46m",
+  bgGray: "\x1b[100m",
+};
+
+// ─── UI components ───────────────────────────────────────────────────
+
+function banner() {
+  console.log("");
+  console.log(`  ${C.cyan}╭─────────────────────────────────────╮${C.reset}`);
+  console.log(`  ${C.cyan}│${C.reset}                                     ${C.cyan}│${C.reset}`);
+  console.log(`  ${C.cyan}│${C.reset}     ${C.bold}${C.cyan}C a m e l A G I${C.reset}               ${C.cyan}│${C.reset}`);
+  console.log(`  ${C.cyan}│${C.reset}                                     ${C.cyan}│${C.reset}`);
+  console.log(`  ${C.cyan}│${C.reset}  ${C.gray}Your AI, managed from Telegram${C.reset}    ${C.cyan}│${C.reset}`);
+  console.log(`  ${C.cyan}│${C.reset}                                     ${C.cyan}│${C.reset}`);
+  console.log(`  ${C.cyan}╰─────────────────────────────────────╯${C.reset}`);
+  console.log("");
+}
+
+function stepHeader(step: number, total: number, label: string) {
+  const filled = Math.round((step / total) * 30);
+  const empty = 30 - filled;
+  const bar = `${C.cyan}${"━".repeat(filled)}${C.gray}${"░".repeat(empty)}${C.reset}`;
+  console.log(`\n  ${C.bold}Step ${step} of ${total}${C.reset} ${bar}  ${C.bold}${label}${C.reset}`);
+  console.log(`  ${C.gray}${"─".repeat(50)}${C.reset}`);
+}
+
+function box(lines: string[]) {
+  const maxLen = lines.reduce((max, l) => Math.max(max, stripAnsi(l).length), 0);
+  const width = maxLen + 4;
+  console.log(`  ${C.cyan}╭${"─".repeat(width)}╮${C.reset}`);
+  for (const line of lines) {
+    const pad = width - stripAnsi(line).length - 2;
+    console.log(`  ${C.cyan}│${C.reset} ${line}${" ".repeat(Math.max(0, pad))} ${C.cyan}│${C.reset}`);
+  }
+  console.log(`  ${C.cyan}╰${"─".repeat(width)}╯${C.reset}`);
+}
+
+function summaryCard(entries: [string, string][]) {
+  const labelWidth = entries.reduce((max, [k]) => Math.max(max, k.length), 0);
+  const lines = entries.map(([k, v]) => `${C.gray}${k.padEnd(labelWidth)}${C.reset}  ${v}`);
+  box(lines);
+}
+
+function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+// ─── Input helpers ───────────────────────────────────────────────────
+
 function ask(rl: readline.Interface, question: string): Promise<string> {
   return new Promise((resolve) => rl.question(question, resolve));
 }
 
-// Suppress background server logs during interactive prompts
+function askSecret(rl: readline.Interface, prompt: string): Promise<string> {
+  return new Promise((resolve) => {
+    process.stdout.write(prompt);
+    rl.pause();
+
+    const stdin = process.stdin;
+    stdin.setRawMode(true);
+    stdin.resume();
+
+    let value = "";
+    const onData = (buf: Buffer) => {
+      const ch = buf.toString();
+      if (ch === "\r" || ch === "\n") {
+        stdin.removeListener("data", onData);
+        stdin.setRawMode(false);
+        stdin.pause();
+        rl.resume();
+        process.stdout.write("\n");
+        resolve(value);
+      } else if (ch === "\x03") {
+        stdin.removeListener("data", onData);
+        stdin.setRawMode(false);
+        process.exit(0);
+      } else if (ch === "\x7f" || ch === "\b") {
+        if (value.length > 0) {
+          value = value.slice(0, -1);
+          process.stdout.write("\b \b");
+        }
+      } else if (ch >= " ") {
+        value += ch;
+        process.stdout.write(value.length <= 4 ? ch : "\u2022");
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+
+// ─── Suppress background server logs ─────────────────────────────────
+
 let _logMuted = false;
 const _origLog = console.log;
 const _origError = console.error;
@@ -26,7 +125,6 @@ function muteLogs() {
   _logMuted = true;
   console.log = (...args: unknown[]) => {
     const first = typeof args[0] === "string" ? args[0] : "";
-    // Allow bootstrap's own output (indented or colored)
     if (first.startsWith("\x1b[") || first.startsWith("  ")) _origLog(...args);
   };
   console.error = () => {};
@@ -40,31 +138,27 @@ function unmuteLogs() {
   console.warn = _origWarn;
 }
 
-function pick(rl: readline.Interface, label: string, options: string[], compact = false): Promise<string> {
-  function showList(items: string[], indices: number[]) {
-    for (let i = 0; i < indices.length; i++) {
-      console.log(`    \x1b[33m${indices[i] + 1}\x1b[0m) ${items[i]}`);
-    }
-  }
+// ─── Pick (simple + live-filter) ─────────────────────────────────────
 
+function pick(rl: readline.Interface, label: string, options: string[], compact = false): Promise<string> {
   if (!compact) {
-    // Simple numbered list for small option sets
     return new Promise((resolve) => {
-      console.log(`\n\x1b[36m  ${label}\x1b[0m`);
-      showList(options, options.map((_, i) => i));
-      rl.question(`\n  Pick [1-${options.length}]: `, (answer) => {
+      console.log(`\n  ${C.bold}${label}${C.reset}\n`);
+      for (let i = 0; i < options.length; i++) {
+        console.log(`    ${C.cyan}${i + 1})${C.reset} ${options[i]}`);
+      }
+      rl.question(`\n  ${C.cyan}>${C.reset} `, (answer) => {
         const idx = parseInt(answer.trim(), 10) - 1;
         resolve(options[idx] ?? options[0]);
       });
     });
   }
 
-  // Live-filter mode for large lists
+  // Live-filter mode
   return new Promise((resolve) => {
-    console.log(`\n\x1b[36m  ${label}\x1b[0m`);
-    console.log(`\x1b[90m    ${options.length} options — start typing to filter, arrows to navigate, enter to select\x1b[0m\n`);
+    console.log(`\n  ${C.bold}${label}${C.reset}`);
+    console.log(`  ${C.gray}${options.length} options — type to filter, arrows to navigate, enter to select${C.reset}\n`);
 
-    // Pause readline so we can use raw stdin
     rl.pause();
 
     let query = "";
@@ -74,7 +168,6 @@ function pick(rl: readline.Interface, label: string, options: string[], compact 
 
     function getVisible() {
       if (matches.length <= MAX_VISIBLE) return matches;
-      // Keep cursor in view
       let start = Math.max(0, cursor - Math.floor(MAX_VISIBLE / 2));
       if (start + MAX_VISIBLE > matches.length) start = Math.max(0, matches.length - MAX_VISIBLE);
       return matches.slice(start, start + MAX_VISIBLE);
@@ -84,40 +177,35 @@ function pick(rl: readline.Interface, label: string, options: string[], compact 
       const visible = getVisible();
       const startIdx = matches.indexOf(visible[0]);
 
-      // Clear: move up to header + erase everything below
-      process.stdout.write(`\x1b[2K\r`); // clear current line
+      process.stdout.write(`\x1b[2K\r`);
 
-      // Build output
       const lines: string[] = [];
-      lines.push(`  \x1b[36m>\x1b[0m ${query}\x1b[90m_\x1b[0m`);
+      lines.push(`  ${C.cyan}>${C.reset} ${query}${C.gray}_${C.reset}`);
       lines.push("");
 
       if (matches.length === 0) {
-        lines.push(`    \x1b[33mNo matches\x1b[0m`);
+        lines.push(`    ${C.yellow}No matches${C.reset}`);
       } else {
-        if (startIdx > 0) lines.push(`    \x1b[90m  ↑ ${startIdx} more\x1b[0m`);
+        if (startIdx > 0) lines.push(`    ${C.gray}  ↑ ${startIdx} more${C.reset}`);
         for (let i = 0; i < visible.length; i++) {
           const m = visible[i];
           const globalIdx = startIdx + i;
-          const selected = globalIdx === cursor;
-          if (selected) {
-            lines.push(`    \x1b[36m▸ ${m.index + 1}) ${m.option}\x1b[0m`);
+          if (globalIdx === cursor) {
+            lines.push(`    ${C.cyan}▸ ${m.option}${C.reset}`);
           } else {
-            lines.push(`      \x1b[33m${m.index + 1}\x1b[0m) ${m.option}`);
+            lines.push(`    ${C.gray}  ${m.option}${C.reset}`);
           }
         }
         const remaining = matches.length - (startIdx + visible.length);
-        if (remaining > 0) lines.push(`    \x1b[90m  ↓ ${remaining} more\x1b[0m`);
+        if (remaining > 0) lines.push(`    ${C.gray}  ↓ ${remaining} more${C.reset}`);
       }
 
-      // Move cursor up to overwrite previous render, then write
       if ((render as any)._prevLines) {
         process.stdout.write(`\x1b[${(render as any)._prevLines}A`);
       }
       for (const line of lines) {
         process.stdout.write(`\x1b[2K${line}\n`);
       }
-      // Clear any leftover lines from previous longer render
       const prevCount = (render as any)._prevLines ?? 0;
       for (let i = lines.length; i < prevCount; i++) {
         process.stdout.write(`\x1b[2K\n`);
@@ -139,84 +227,47 @@ function pick(rl: readline.Interface, label: string, options: string[], compact 
     const stdin = process.stdin;
     stdin.setRawMode(true);
     stdin.resume();
-
     render();
 
     const onData = (buf: Buffer) => {
       const key = buf.toString();
 
       if (key === "\r" || key === "\n") {
-        // Enter: select current
         stdin.removeListener("data", onData);
         stdin.setRawMode(false);
         stdin.pause();
         rl.resume();
 
-        // Clear the picker output
         const prevLines = (render as any)._prevLines ?? 0;
         process.stdout.write(`\x1b[${prevLines}A`);
         for (let i = 0; i < prevLines; i++) process.stdout.write(`\x1b[2K\n`);
         process.stdout.write(`\x1b[${prevLines}A`);
 
         if (matches.length > 0) {
-          const selected = matches[cursor];
-          console.log(`    \x1b[32m→ ${selected.option}\x1b[0m\n`);
-          resolve(selected.option);
+          console.log(`  ${C.green}→ ${matches[cursor].option}${C.reset}\n`);
+          resolve(matches[cursor].option);
+        } else if (query.trim()) {
+          console.log(`  ${C.green}→ ${query.trim()}${C.reset}\n`);
+          resolve(query.trim());
         } else {
-          // No matches but query could be a custom model name
-          if (query.trim()) {
-            console.log(`    \x1b[32m→ ${query.trim()}\x1b[0m\n`);
-            resolve(query.trim());
-          } else {
-            console.log(`    \x1b[32m→ ${options[0]}\x1b[0m\n`);
-            resolve(options[0]);
-          }
+          console.log(`  ${C.green}→ ${options[0]}${C.reset}\n`);
+          resolve(options[0]);
         }
         return;
       }
 
-      if (key === "\x03") {
-        // Ctrl+C
-        stdin.removeListener("data", onData);
-        stdin.setRawMode(false);
-        process.exit(0);
-      }
-
-      if (key === "\x1b[A") {
-        // Up arrow
-        if (cursor > 0) cursor--;
-        render();
-        return;
-      }
-
-      if (key === "\x1b[B") {
-        // Down arrow
-        if (cursor < matches.length - 1) cursor++;
-        render();
-        return;
-      }
-
-      if (key === "\x7f" || key === "\b") {
-        // Backspace
-        if (query.length > 0) {
-          query = query.slice(0, -1);
-          updateMatches();
-          render();
-        }
-        return;
-      }
-
-      // Regular character
-      if (key.length === 1 && key >= " ") {
-        query += key;
-        updateMatches();
-        render();
-      }
+      if (key === "\x03") { stdin.removeListener("data", onData); stdin.setRawMode(false); process.exit(0); }
+      if (key === "\x1b[A") { if (cursor > 0) cursor--; render(); return; }
+      if (key === "\x1b[B") { if (cursor < matches.length - 1) cursor++; render(); return; }
+      if (key === "\x7f" || key === "\b") { if (query.length > 0) { query = query.slice(0, -1); updateMatches(); render(); } return; }
+      if (key.length === 1 && key >= " ") { query += key; updateMatches(); render(); }
     };
 
     stdin.on("data", onData);
   });
 }
+
+// ─── Token validation ────────────────────────────────────────────────
 
 async function validateBotToken(token: string): Promise<{ ok: boolean; username?: string; name?: string; error?: string }> {
   try {
@@ -231,15 +282,15 @@ async function validateBotToken(token: string): Promise<{ ok: boolean; username?
   }
 }
 
+// ─── Main bootstrap ─────────────────────────────────────────────────
+
 export async function runBootstrap(tokenArg?: string) {
   ensureDirs();
   seedWorkspace();
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-  console.log(`\n\x1b[36m  CamelAGI Bootstrap\x1b[0m`);
-  console.log(`\x1b[90m  Sets up your admin bot, verifies your identity, then configures AI.\x1b[0m`);
-  console.log(`\x1b[90m  After this, manage everything from Telegram.\x1b[0m`);
+  banner();
 
   // ─── Resume detection ──────────────────────────────────────────────
 
@@ -251,35 +302,34 @@ export async function runBootstrap(tokenArg?: string) {
   const hasApiKey = !!existingConfig?.apiKey;
 
   if (hasAdminBot && hasVerifiedUser && hasApiKey) {
-    console.log(`\n\x1b[32m  ✔ Already fully configured.\x1b[0m`);
-    console.log(`\x1b[90m    Admin bot: configured\x1b[0m`);
-    console.log(`\x1b[90m    Identity: verified\x1b[0m`);
-    console.log(`\x1b[90m    API: ${existingConfig!.provider} / ${existingConfig!.model}\x1b[0m`);
-    const resetAnswer = (await ask(rl, `\n\x1b[36m  Reset and start over? (y/N):\x1b[0m `)).trim().toLowerCase();
+    console.log(`  ${C.green}Already fully configured.${C.reset}\n`);
+    summaryCard([
+      ["Admin Bot", "configured"],
+      ["Identity", "verified"],
+      ["Provider", `${existingConfig!.provider}`],
+      ["Model", `${existingConfig!.model}`],
+    ]);
+    const resetAnswer = (await ask(rl, `\n  ${C.cyan}Reset and start over? (y/N):${C.reset} `)).trim().toLowerCase();
     if (resetAnswer !== "y") {
-      console.log(`\x1b[90m  Nothing to do. Use /setup in Telegram to reconfigure.\x1b[0m\n`);
+      console.log(`  ${C.gray}Nothing to do. Use /setup in Telegram to reconfigure.${C.reset}\n`);
       rl.close();
       return;
     }
   } else if (hasAdminBot && hasVerifiedUser && !hasApiKey) {
-    console.log(`\n\x1b[32m  ✔ Admin bot configured, identity verified.\x1b[0m`);
-    console.log(`\x1b[33m  ⚠ API not configured — resuming from Step 3.\x1b[0m`);
+    console.log(`  ${C.green}Admin bot configured, identity verified.${C.reset}`);
+    console.log(`  ${C.yellow}API not configured — resuming from Step 3.${C.reset}\n`);
 
-    // Start server for background operation
     const serverSpinner = ora({ text: "Starting server...", indent: 2 }).start();
     const { startServer } = await import("./serve.js");
     startServer({ cron: true, boot: true }).catch(() => {});
     await new Promise((r) => setTimeout(r, 2000));
     serverSpinner.succeed("Server running");
+    muteLogs();
 
-    // Jump straight to step 3
+    stepHeader(3, 3, "AI Provider");
     await runApiSetup(rl);
-    rl.close();
 
-    console.log(`\n\x1b[36m  ✅ Bootstrap complete!\x1b[0m`);
-    console.log(`\x1b[90m  Use /newagent in Telegram to create your first AI agent.\x1b[0m`);
-    console.log(`\x1b[90m  Server is running. Press Ctrl+C to stop.\x1b[0m\n`);
-    await new Promise(() => {});
+    showComplete(rl, existingConfig);
     return;
   }
 
@@ -288,22 +338,22 @@ export async function runBootstrap(tokenArg?: string) {
   let botToken = tokenArg ?? "";
 
   if (!botToken) {
-    console.log(`\n\x1b[36m  Step 1: Telegram Admin Bot\x1b[0m`);
-    console.log(`\x1b[90m  This bot lets you manage CamelAGI from Telegram.\x1b[0m\n`);
-    console.log(`  \x1b[36m┌──────────────────────────────────────────┐\x1b[0m`);
-    console.log(`  \x1b[36m│\x1b[0m  1. Open Telegram → \x1b[1m@BotFather\x1b[0m → \x1b[1m/newbot\x1b[0m \x1b[36m│\x1b[0m`);
-    console.log(`  \x1b[36m│\x1b[0m  2. Copy the bot token                  \x1b[36m│\x1b[0m`);
-    console.log(`  \x1b[36m└──────────────────────────────────────────┘\x1b[0m\n`);
-    botToken = (await ask(rl, `\x1b[36m  Bot token:\x1b[0m `)).trim();
+    stepHeader(1, 3, "Telegram Bot");
+    console.log(`\n  ${C.gray}This bot lets you manage CamelAGI from Telegram.${C.reset}\n`);
+    box([
+      `1. Open Telegram → ${C.bold}@BotFather${C.reset} → ${C.bold}/newbot${C.reset}`,
+      `2. Copy the bot token`,
+    ]);
+    console.log("");
+    botToken = (await askSecret(rl, `  ${C.cyan}Bot token:${C.reset} `)).trim();
   }
 
   if (!botToken) {
     rl.close();
-    console.error("\n\x1b[31m  Bot token is required.\x1b[0m\n");
+    console.error(`\n  ${C.red}Bot token is required.${C.reset}\n`);
     process.exit(1);
   }
 
-  // Validate the token
   const validateSpinner = ora({ text: "Validating bot token...", indent: 2 }).start();
   const result = await validateBotToken(botToken);
   if (!result.ok) {
@@ -315,10 +365,9 @@ export async function runBootstrap(tokenArg?: string) {
       process.exit(1);
     }
   } else {
-    validateSpinner.succeed(`Bot valid: @${result.username} (${result.name})`);
+    validateSpinner.succeed(`Bot valid: ${C.bold}@${result.username}${C.reset} (${result.name})`);
   }
 
-  // Save admin bot config (no API yet)
   saveConfig({
     agents: {
       admin: {
@@ -329,10 +378,9 @@ export async function runBootstrap(tokenArg?: string) {
     },
   });
   seedAgentWorkspace("admin", "Admin", "CamelAGI admin bot — manages your AI agents from Telegram");
-
   ora({ indent: 2 }).succeed("Admin bot configured");
 
-  // ─── Step 2: Start server + pairing ───────────────────────────────
+  // ─── Step 2: Verify identity ───────────────────────────────────────
 
   const serverSpinner = ora({ text: "Starting server...", indent: 2 }).start();
   const { startServer } = await import("./serve.js");
@@ -342,15 +390,16 @@ export async function runBootstrap(tokenArg?: string) {
   muteLogs();
 
   const botName = result.ok ? `@${result.username}` : "your admin bot";
-  console.log(`\n\x1b[36m  Step 2: Verify Your Identity\x1b[0m\n`);
-  console.log(`  \x1b[36m┌──────────────────────────────────────────┐\x1b[0m`);
-  console.log(`  \x1b[36m│\x1b[0m  Open Telegram and send any message to  \x1b[36m│\x1b[0m`);
-  console.log(`  \x1b[36m│\x1b[0m  \x1b[1m\x1b[36m${botName.padEnd(38)}\x1b[0m\x1b[36m│\x1b[0m`);
-  console.log(`  \x1b[36m└──────────────────────────────────────────┘\x1b[0m\n`);
+  stepHeader(2, 3, "Identity");
+  console.log("");
+  box([
+    `Open Telegram and send any message to`,
+    `${C.bold}${C.cyan}${botName}${C.reset}`,
+  ]);
+  console.log("");
 
   const pairingSpinner = ora({ text: "Waiting for your Telegram message...", indent: 2 }).start();
 
-  // Poll for pairing request
   let pairingRequest: Awaited<ReturnType<typeof listPendingRequests>>[number] | undefined;
   for (let i = 0; i < 120; i++) {
     const pending = listPendingRequests().filter((r) => r.agentId === "admin" && r.status === "pending");
@@ -364,23 +413,23 @@ export async function runBootstrap(tokenArg?: string) {
   if (!pairingRequest) {
     pairingSpinner.fail("Timeout — no message received. Pair later via /pairing.");
     rl.close();
-    console.log(`\x1b[90m  Server is running. Press Ctrl+C to stop.\x1b[0m\n`);
+    unmuteLogs();
+    console.log(`  ${C.gray}Server is running. Press Ctrl+C to stop.${C.reset}\n`);
     await new Promise(() => {});
     return;
   }
 
   const userLabel = pairingRequest.username ? `@${pairingRequest.username}` : pairingRequest.firstName ?? String(pairingRequest.userId);
-  pairingSpinner.succeed(`Pairing request from ${userLabel}`);
-  console.log(`\n  \x1b[36m┌──────────────────────┐\x1b[0m`);
-  console.log(`  \x1b[36m│\x1b[0m  Code: \x1b[1m\x1b[33m${pairingRequest.code}\x1b[0m          \x1b[36m│\x1b[0m`);
-  console.log(`  \x1b[36m│\x1b[0m  User: \x1b[1m${userLabel.padEnd(14)}\x1b[0m\x1b[36m│\x1b[0m`);
-  console.log(`  \x1b[36m│\x1b[0m  ID:   ${String(pairingRequest.userId).padEnd(14)}\x1b[36m│\x1b[0m`);
-  console.log(`  \x1b[36m└──────────────────────┘\x1b[0m\n`);
+  pairingSpinner.succeed(`Pairing request from ${C.bold}${userLabel}${C.reset}`);
+  console.log("");
+  summaryCard([
+    ["User", userLabel],
+    ["ID", String(pairingRequest.userId)],
+  ]);
 
-  // Ask admin to approve in CLI
-  const approveAnswer = (await ask(rl, `\x1b[36m  Approve ${userLabel}? (Y/n):\x1b[0m `)).trim().toLowerCase();
+  const approveAnswer = (await ask(rl, `\n  ${C.cyan}Approve ${userLabel}? (Y/n):${C.reset} `)).trim().toLowerCase();
   if (approveAnswer === "n") {
-    console.log(`\x1b[90m  Denied. Pair later via /pairing.\x1b[0m`);
+    console.log(`  ${C.gray}Denied. Pair later via /pairing.${C.reset}`);
     rl.close();
     await new Promise(() => {});
     return;
@@ -394,7 +443,6 @@ export async function runBootstrap(tokenArg?: string) {
     return;
   }
 
-  // Notify user in Telegram
   try {
     await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: "POST",
@@ -406,39 +454,81 @@ export async function runBootstrap(tokenArg?: string) {
     });
   } catch { /* best effort */ }
 
-  ora({ indent: 2 }).succeed(`${userLabel} approved! You are now the admin.`);
+  ora({ indent: 2 }).succeed(`${userLabel} approved!`);
 
-  // ─── Step 3: API Setup (optional) ─────────────────────────────────
+  // ─── Step 3: API Setup ─────────────────────────────────────────────
 
-  const setupNow = (await ask(rl, `\n\x1b[36m  Step 3: Configure AI provider now? (Y/n):\x1b[0m `)).trim().toLowerCase();
+  stepHeader(3, 3, "AI Provider");
+
+  const setupNow = (await ask(rl, `\n  ${C.cyan}Configure AI provider now? (Y/n):${C.reset} `)).trim().toLowerCase();
+
+  let finalProvider = "";
+  let finalModel = "";
+  let finalBaseUrl = "";
+  let finalApiKey = "";
 
   if (setupNow !== "n") {
-    await runApiSetup(rl);
+    const apiResult = await runApiSetup(rl);
+    finalProvider = apiResult.provider;
+    finalModel = apiResult.model;
+    finalBaseUrl = apiResult.baseUrl ?? "";
+    finalApiKey = apiResult.apiKey ?? "";
   } else {
-    console.log(`\x1b[90m  Skipped — configure later via /setup in Telegram.\x1b[0m`);
+    console.log(`  ${C.gray}Skipped — configure later via /setup in Telegram.${C.reset}`);
   }
 
   rl.close();
 
-  // ─── Done ─────────────────────────────────────────────────────────
+  // ─── Done ──────────────────────────────────────────────────────────
 
   unmuteLogs();
-  console.log(`\n\x1b[36m  ✅ Bootstrap complete!\x1b[0m`);
-  console.log(`\x1b[90m  Use /newagent in Telegram to create your first AI agent.\x1b[0m`);
-  console.log(`\x1b[90m  Server is running. Press Ctrl+C to stop.\x1b[0m\n`);
+
+  console.log(`\n  ${C.green}${C.bold}Bootstrap complete!${C.reset}\n`);
+
+  const summaryEntries: [string, string][] = [
+    ["Admin Bot", botName],
+  ];
+  if (finalProvider) summaryEntries.push(["Provider", finalProvider]);
+  if (finalModel) summaryEntries.push(["Model", finalModel.length > 30 ? finalModel.slice(0, 27) + "..." : finalModel]);
+  if (finalBaseUrl) summaryEntries.push(["Base URL", finalBaseUrl]);
+  if (finalApiKey) summaryEntries.push(["API Key", "\u2022\u2022\u2022\u2022" + finalApiKey.slice(-4)]);
+  summaryEntries.push(["Admin", userLabel ?? "pending"]);
+  summaryEntries.push(["Config", paths.configFile]);
+  summaryCard(summaryEntries);
+
+  console.log(`\n  ${C.gray}Next: Use ${C.cyan}/newagent${C.gray} in ${botName} to create${C.reset}`);
+  console.log(`  ${C.gray}      your first AI agent.${C.reset}`);
+  console.log(`\n  ${C.gray}Server is running. Press Ctrl+C to stop.${C.reset}\n`);
 
   await new Promise(() => {});
 }
 
-// ─── Extracted API setup ──────────────────────────────────────────────
+// ─── Completion helper (for resume path) ─────────────────────────────
 
-async function runApiSetup(rl: readline.Interface): Promise<void> {
+async function showComplete(rl: readline.Interface, config: any) {
+  rl.close();
+  unmuteLogs();
+  const freshConfig = loadConfig();
+  console.log(`\n  ${C.green}${C.bold}Bootstrap complete!${C.reset}\n`);
+  summaryCard([
+    ["Provider", freshConfig.provider],
+    ["Model", freshConfig.model],
+    ["API Key", freshConfig.apiKey ? "\u2022\u2022\u2022\u2022" + freshConfig.apiKey.slice(-4) : "not set"],
+    ["Config", paths.configFile],
+  ]);
+  console.log(`\n  ${C.gray}Server is running. Press Ctrl+C to stop.${C.reset}\n`);
+  await new Promise(() => {});
+}
+
+// ─── API setup ───────────────────────────────────────────────────────
+
+async function runApiSetup(rl: readline.Interface): Promise<{ provider: string; model: string; baseUrl?: string; apiKey?: string }> {
   const service = await pick(rl, "Which provider?", [
-    "anthropic  — Claude (direct)",
-    "openai     — GPT (direct)",
-    "openrouter — Any model via OpenRouter",
-    "ollama     — Local models",
-    "custom     — Custom OpenAI-compatible endpoint",
+    "anthropic   Claude (direct)",
+    "openai      GPT (direct)",
+    "openrouter  Any model via OpenRouter",
+    "ollama      Local models",
+    "custom      Custom endpoint",
   ]);
   const serviceKey = service.split(/\s/)[0];
   const preset = PROVIDER_PRESETS[serviceKey] ?? PROVIDER_PRESETS.custom;
@@ -446,16 +536,16 @@ async function runApiSetup(rl: readline.Interface): Promise<void> {
   let apiKey: string | undefined;
   if (serviceKey !== "ollama") {
     const keyLabel = serviceKey === "anthropic" ? "Anthropic" : serviceKey === "openai" ? "OpenAI" : serviceKey === "openrouter" ? "OpenRouter" : "API";
-    apiKey = (await ask(rl, `\n\x1b[36m  ${keyLabel} API key:\x1b[0m `)).trim() || undefined;
-    if (!apiKey) console.log("\x1b[33m  No key — set it later via /setup in Telegram.\x1b[0m");
+    apiKey = (await askSecret(rl, `  ${C.cyan}${keyLabel} API key:${C.reset} `)).trim() || undefined;
+    if (!apiKey) console.log(`  ${C.yellow}No key — set it later via /setup in Telegram.${C.reset}`);
   }
 
   let baseUrl = preset.baseUrl;
   if (serviceKey === "custom") {
-    baseUrl = (await ask(rl, `\n\x1b[36m  Base URL:\x1b[0m `)).trim() || undefined;
+    baseUrl = (await ask(rl, `\n  ${C.cyan}Base URL:${C.reset} `)).trim() || undefined;
   }
 
-  // Fetch live models for OpenRouter, fall back to static presets
+  // Fetch live models for OpenRouter
   let models = [...preset.models];
   if (serviceKey === "openrouter" && apiKey) {
     const spinner = ora({ text: "Fetching models from OpenRouter...", indent: 2 }).start();
@@ -472,9 +562,9 @@ async function runApiSetup(rl: readline.Interface): Promise<void> {
   if (models.length > 0) {
     const customOption = "(type a custom model name)";
     const choice = await pick(rl, "Which model?", [...models, customOption], true);
-    model = choice === customOption ? (await ask(rl, `\n\x1b[36m  Model name:\x1b[0m `)).trim() : choice;
+    model = choice === customOption ? (await ask(rl, `\n  ${C.cyan}Model name:${C.reset} `)).trim() : choice;
   } else {
-    model = (await ask(rl, `\n\x1b[36m  Model name:\x1b[0m `)).trim();
+    model = (await ask(rl, `\n  ${C.cyan}Model name:${C.reset} `)).trim();
   }
 
   const update: Record<string, unknown> = { provider: preset.provider, model };
@@ -483,8 +573,6 @@ async function runApiSetup(rl: readline.Interface): Promise<void> {
   saveConfig(update);
 
   ora({ indent: 2 }).succeed("API configured");
-  console.log(`\x1b[90m    provider: ${preset.provider}\x1b[0m`);
-  console.log(`\x1b[90m    model:    ${model}\x1b[0m`);
-  if (baseUrl) console.log(`\x1b[90m    baseUrl:  ${baseUrl}\x1b[0m`);
-  console.log(`\x1b[90m    apiKey:   ${apiKey ? "***" + apiKey.slice(-4) : "not set"}\x1b[0m`);
+
+  return { provider: preset.provider, model, baseUrl, apiKey };
 }
