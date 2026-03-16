@@ -207,10 +207,9 @@ export function saveConfig(values: Record<string, unknown>): void {
   if (_onConfigSaved) {
     try {
       const fresh = loadConfig();
-      console.log(`[config] onConfigSaved firing — agents: [${Object.keys(fresh.agents)}]`);
       _onConfigSaved(fresh);
-    } catch (err) {
-      console.error(`[config] onConfigSaved FAILED:`, err);
+    } catch {
+      // Config reload failed — stale state will be caught on next save
     }
   }
 }

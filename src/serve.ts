@@ -44,7 +44,7 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
   ensureDirs();
   seedWorkspace();
   const config = loadConfig();
-  console.log(`[serve] Startup config — agents: [${Object.keys(config.agents)}], apiKey: ${config.apiKey ? "set" : "none"}, hasTgToken: ${!!config.telegram.botToken}`);
+  // Startup config logged below in the formatted block
 
   const state: GatewayState = {
     config,
@@ -116,9 +116,22 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
     });
   });
 
-  log(`CamelAGI gateway listening on ${host}:${actualPort}`);
-  log(`  HTTP:  http://${host}:${actualPort}/health`);
-  log(`  WS:    ws://${host}:${actualPort}`);
+  const agents = Object.keys(state.config.agents);
+  const apiStatus = state.config.apiKey ? "\x1b[32mset\x1b[0m" : "\x1b[33mnot set\x1b[0m";
+
+  console.log("");
+  console.log(`  \x1b[36m╭─────────────────────────────────────╮\x1b[0m`);
+  console.log(`  \x1b[36m│\x1b[0m  \x1b[1m\x1b[36mCamelAGI\x1b[0m  gateway                  \x1b[36m│\x1b[0m`);
+  console.log(`  \x1b[36m├─────────────────────────────────────┤\x1b[0m`);
+  console.log(`  \x1b[36m│\x1b[0m  HTTP   http://${host}:${actualPort}${" ".repeat(Math.max(0, 19 - String(actualPort).length - host.length))} \x1b[36m│\x1b[0m`);
+  console.log(`  \x1b[36m│\x1b[0m  WS     ws://${host}:${actualPort}${" ".repeat(Math.max(0, 21 - String(actualPort).length - host.length))} \x1b[36m│\x1b[0m`);
+  console.log(`  \x1b[36m│\x1b[0m  API    ${apiStatus}${" ".repeat(Math.max(0, state.config.apiKey ? 27 : 23))} \x1b[36m│\x1b[0m`);
+  if (agents.length > 0) {
+    const agentStr = agents.join(", ");
+    console.log(`  \x1b[36m│\x1b[0m  Agents ${agentStr}${" ".repeat(Math.max(0, 29 - agentStr.length))} \x1b[36m│\x1b[0m`);
+  }
+  console.log(`  \x1b[36m╰─────────────────────────────────────╯\x1b[0m`);
+  console.log("");
 
   // Boot script
   if (opts.boot !== false && state.config.boot) {
@@ -172,7 +185,10 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
     const newAgentKeys = Object.keys(newConfig.agents);
     state.config = newConfig;
     state.systemPrompt = buildSystemPrompt(state.config.systemPrompt, state.config.skills);
-    console.log(`[serve] Config reloaded — agents: [${oldAgentKeys}] → [${newAgentKeys}]`);
+    // Only log if agents actually changed
+    if (oldAgentKeys.join(",") !== newAgentKeys.join(",")) {
+      console.log(`  \x1b[90m${new Date().toLocaleTimeString()}\x1b[0m \x1b[36m›\x1b[0m \x1b[90m[config]\x1b[0m Agents: [${newAgentKeys.join(", ")}]`);
+    }
     configureLane(Lane.Main, state.config.lanes.main);
     configureLane(Lane.Cron, state.config.lanes.cron);
     configureLane(Lane.Subagent, state.config.lanes.subagent);
@@ -228,7 +244,7 @@ function watchConfig(
     let debounce: NodeJS.Timeout | null = null;
     const watcher = fs.watch(configDir, (_event, filename) => {
       if (filename !== "config.yaml") return;
-      console.log(`[watchConfig] config.yaml changed (event: ${_event})`);
+      // Silent — only log on error
       if (debounce) clearTimeout(debounce);
       debounce = setTimeout(() => {
         try {
@@ -239,7 +255,7 @@ function watchConfig(
         }
       }, 500);
     });
-    console.log(`[watchConfig] Watching ${configDir} for config.yaml changes`);
+    // Silent — watcher active
     return watcher;
   } catch (err) {
     console.error(`[watchConfig] FAILED to set up watcher:`, err);
