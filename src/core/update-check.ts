@@ -1,13 +1,6 @@
 // Check for newer version on npm registry (non-blocking, fails silently)
 
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
-
-interface PackageJson {
-  name: string;
-  version: string;
-}
+import { VERSION, NAME } from "./version.js";
 
 /** Compare semver strings. Returns 1 if a > b, -1 if a < b, 0 if equal. */
 function compareSemver(a: string, b: string): number {
@@ -26,10 +19,7 @@ function compareSemver(a: string, b: string): number {
  */
 export async function checkForUpdate(): Promise<{ current: string; latest: string } | null> {
   try {
-    const pkg = require("../../package.json") as PackageJson;
-    const current = pkg.version;
-
-    const res = await fetch(`https://registry.npmjs.org/${pkg.name}/latest`, {
+    const res = await fetch(`https://registry.npmjs.org/${NAME}/latest`, {
       signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return null;
@@ -38,8 +28,8 @@ export async function checkForUpdate(): Promise<{ current: string; latest: strin
     const latest = data.version;
     if (!latest) return null;
 
-    if (compareSemver(latest, current) > 0) {
-      return { current, latest };
+    if (compareSemver(latest, VERSION) > 0) {
+      return { current: VERSION, latest };
     }
     return null;
   } catch {

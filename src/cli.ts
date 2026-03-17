@@ -4,6 +4,7 @@
 
 import { resolve, allCommands } from "./cli/registry.js";
 import { printUpdateNotice } from "./core/update-check.js";
+import { VERSION } from "./core/version.js";
 
 // Register all commands (side-effect imports)
 import "./cli/cmd-reset.js";
@@ -20,6 +21,7 @@ import "./cli/cmd-soul.js";
 import "./cli/cmd-sessions.js";
 import "./cli/cmd-chat.js";
 import "./cli/cmd-pairing.js";
+import "./cli/cmd-install.js";
 
 const args = process.argv.slice(2);
 
@@ -28,10 +30,7 @@ printUpdateNotice();
 
 // camelagi --version / -v
 if (args[0] === "--version" || args[0] === "-v") {
-  const { createRequire } = await import("node:module");
-  const require = createRequire(import.meta.url);
-  const pkg = require("../package.json") as { version: string };
-  console.log(pkg.version);
+  console.log(VERSION);
   process.exit(0);
 }
 

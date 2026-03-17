@@ -101,7 +101,12 @@ CamelAGI uses **Claude Agent SDK**. OpenClaw uses **pi-agent-core**. Here's why 
 
 ## Quick Start
 
-**Install**
+**Install** (no Node.js required)
+```bash
+curl -fsSL https://raw.githubusercontent.com/inawafalm/CamelAGI/main/install.sh | bash
+```
+
+**Or via npm**
 ```bash
 npm install -g camelagi
 ```
