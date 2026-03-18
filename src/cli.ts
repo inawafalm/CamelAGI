@@ -8,7 +8,6 @@ import { VERSION } from "./core/version.js";
 
 // Register all commands (side-effect imports)
 import "./cli/cmd-reset.js";
-import "./cli/cmd-bootstrap.js";
 import "./cli/cmd-setup.js";
 import "./cli/cmd-doctor.js";
 import "./cli/cmd-config.js";
