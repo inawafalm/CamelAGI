@@ -20,42 +20,37 @@ Examples:
   camelagi sessions rm session-abc123
   camelagi sessions rm session-abc123 --yes`,
   run: async (args) => {
+    const p = await import("@clack/prompts");
     const { listSessions, deleteSession } = await import("../session.js");
 
     if (args[0] === "rm" && args[1]) {
       if (!hasFlag(args, "--yes") && !hasFlag(args, "-y")) {
-        const { default: readline } = await import("node:readline");
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        const answer = await new Promise<string>((resolve) =>
-          rl.question(`  Delete session "${args[1]}"? (yes/no): `, resolve),
-        );
-        rl.close();
-        if (answer.trim().toLowerCase() !== "yes") {
-          console.log("  Cancelled.");
-          process.exit(0);
+        const ok = await p.confirm({ message: `Delete session "${args[1]}"?` });
+        if (p.isCancel(ok) || !ok) {
+          p.cancel("Cancelled.");
+          return;
         }
       }
 
       deleteSession(args[1]);
-      console.log(`Deleted session: ${args[1]}`);
-      process.exit(0);
+      p.log.success(`Deleted session: ${args[1]}`);
+      return;
     }
 
     if (args[0] && args[0] !== "rm") {
-      console.error(`Unknown subcommand: ${args[0]}. Use: camelagi sessions [rm <id>]`);
+      p.log.error(`Unknown subcommand: ${args[0]}. Use: camelagi sessions [rm <id>]`);
       process.exit(1);
     }
 
     const sessions = listSessions();
     if (sessions.length === 0) {
-      console.log("No sessions.");
+      p.log.info("No sessions.");
     } else {
       for (const s of sessions) {
         const date = new Date(s.createdAt).toLocaleString();
         const label = s.label ? `, ${s.label}` : "";
-        console.log(`  ${s.id}  (${s.model}${label}, ${date})`);
+        p.log.info(`${s.id}  (${s.model}${label}, ${date})`);
       }
     }
-    process.exit(0);
   },
 });

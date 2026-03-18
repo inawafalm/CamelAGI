@@ -16,30 +16,26 @@ Examples:
   camelagi reset
   camelagi reset --confirm`,
   run: async (args) => {
-    const { default: fs } = await import("node:fs");
-    const { default: readline } = await import("node:readline");
+    const p = await import("@clack/prompts");
+    const fs = await import("node:fs");
 
     const configDir = paths.configDir;
 
     if (!fs.existsSync(configDir)) {
-      console.log("Nothing to reset — ~/.camelagi does not exist.");
-      process.exit(0);
+      p.log.info("Nothing to reset \u2014 ~/.camelagi does not exist.");
+      return;
     }
 
     if (!hasFlag(args, "--confirm")) {
-      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-      const answer = await new Promise<string>((resolve) =>
-        rl.question("\x1b[31m  This will delete ALL config, sessions, agents, and workspaces.\x1b[0m\n  Are you sure? (yes/no): ", resolve),
-      );
-      rl.close();
-      if (answer.trim().toLowerCase() !== "yes") {
-        console.log("  Cancelled.");
-        process.exit(0);
+      p.log.warn("This will delete ALL config, sessions, agents, and workspaces.");
+      const ok = await p.confirm({ message: "Are you sure?" });
+      if (p.isCancel(ok) || !ok) {
+        p.cancel("Cancelled.");
+        return;
       }
     }
 
     fs.rmSync(configDir, { recursive: true, force: true });
-    console.log("  \x1b[32m✓\x1b[0m ~/.camelagi deleted. Run \x1b[36mcamelagi bootstrap\x1b[0m to start fresh.");
-    process.exit(0);
+    p.log.success("~/.camelagi deleted. Run \x1b[36mcamelagi bootstrap\x1b[0m to start fresh.");
   },
 });

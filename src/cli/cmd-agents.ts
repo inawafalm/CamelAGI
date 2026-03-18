@@ -21,50 +21,45 @@ Examples:
   camelagi agents rm mybot
   camelagi agents rm mybot --yes`,
   run: async (args) => {
+    const p = await import("@clack/prompts");
     ensureDirs();
     const config = loadConfig();
 
     if (args[0] === "rm" && args[1]) {
       const agents = { ...(config.agents ?? {}) } as Record<string, unknown>;
       if (!agents[args[1]]) {
-        console.error(`Agent "${args[1]}" not found.`);
+        p.log.error(`Agent "${args[1]}" not found.`);
         process.exit(1);
       }
 
       if (!hasFlag(args, "--yes") && !hasFlag(args, "-y")) {
-        const { default: readline } = await import("node:readline");
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        const answer = await new Promise<string>((resolve) =>
-          rl.question(`  Remove agent "${args[1]}"? (yes/no): `, resolve),
-        );
-        rl.close();
-        if (answer.trim().toLowerCase() !== "yes") {
-          console.log("  Cancelled.");
-          process.exit(0);
+        const ok = await p.confirm({ message: `Remove agent "${args[1]}"?` });
+        if (p.isCancel(ok) || !ok) {
+          p.cancel("Cancelled.");
+          return;
         }
       }
 
       delete agents[args[1]];
       saveConfig({ agents });
-      console.log(`Removed agent: ${args[1]}`);
-      process.exit(0);
+      p.log.success(`Removed agent: ${args[1]}`);
+      return;
     }
 
     if (args[0] && args[0] !== "rm") {
-      console.error(`Unknown subcommand: ${args[0]}. Use: camelagi agents [rm <id>]`);
+      p.log.error(`Unknown subcommand: ${args[0]}. Use: camelagi agents [rm <id>]`);
       process.exit(1);
     }
 
     const agentEntries = Object.entries(config.agents ?? {});
     if (agentEntries.length === 0) {
-      console.log("No agents configured. Use /agents add in the TUI or edit config.yaml.");
+      p.log.info("No agents configured. Use /newagent in Telegram or edit config.yaml.");
     } else {
       for (const [id, a] of agentEntries) {
         const parts = [a.model ?? config.model];
         if (a.telegram?.botToken) parts.push("telegram");
-        console.log(`  ${id}  (${a.name}, ${parts.join(", ")})`);
+        p.log.info(`${id}  (${a.name}, ${parts.join(", ")})`);
       }
     }
-    process.exit(0);
   },
 });

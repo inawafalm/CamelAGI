@@ -22,6 +22,7 @@ import "./cli/cmd-sessions.js";
 import "./cli/cmd-chat.js";
 import "./cli/cmd-pairing.js";
 import "./cli/cmd-install.js";
+import "./cli/cmd-uninstall.js";
 
 const args = process.argv.slice(2);
 
