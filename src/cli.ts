@@ -38,29 +38,51 @@ if (args[0] === "--version" || args[0] === "-v") {
 // camelagi --help / -h / (no args)
 if (args[0] === "--help" || args[0] === "-h" || args.length === 0) {
   const commands = allCommands();
-  const maxLen = Math.max(...commands.map((c) => c.name.length));
-  console.log(`
-camelagi - Personal AI assistant
 
-Usage:
-  camelagi "your message"          One-shot message
-  camelagi <command> [options]     Run a command
+  const c = "\x1b[36m", g = "\x1b[90m", b = "\x1b[1m", x = "\x1b[0m";
 
-Commands:`);
+  // Group commands by category
+  const groups: Record<string, { name: string; desc: string }[]> = {
+    "Getting Started": [],
+    "Server": [],
+    "Agents & Sessions": [],
+    "Configuration": [],
+    "Maintenance": [],
+  };
+
+  const categorize: Record<string, string> = {
+    bootstrap: "Getting Started", setup: "Getting Started", chat: "Getting Started",
+    serve: "Server", daemon: "Server", logs: "Server",
+    agents: "Agents & Sessions", soul: "Agents & Sessions", sessions: "Agents & Sessions", pairing: "Agents & Sessions",
+    config: "Configuration", cron: "Configuration",
+    doctor: "Maintenance", reset: "Maintenance", install: "Maintenance", uninstall: "Maintenance",
+  };
+
   for (const cmd of commands) {
-    console.log(`  ${cmd.name.padEnd(maxLen + 2)}${cmd.description}`);
+    const cat = categorize[cmd.name] ?? "Maintenance";
+    groups[cat].push({ name: cmd.name, desc: cmd.description });
   }
-  console.log(`
-Environment:
-  ANTHROPIC_API_KEY    Anthropic API key
-  OPENAI_API_KEY       OpenAI API key
-  CAMELAGI_MODEL      Model override (e.g. gpt-4o)
-  CAMELAGI_PROVIDER   Provider override (anthropic|openai)
-  CAMELAGI_TOKEN      Auth token for gateway server
-  TELEGRAM_BOT_TOKEN   Telegram bot token
 
-Config file: ~/.camelagi/config.yaml
-`);
+  console.log("");
+  console.log(`  ${b}${c}CamelAGI${x} ${g}v${VERSION}${x}`);
+  console.log(`  ${g}Your AI, managed from Telegram${x}`);
+  console.log("");
+  console.log(`  ${b}Usage${x}`);
+  console.log(`    ${c}camel${x} ${g}<command>${x}              Run a command`);
+  console.log(`    ${c}camel${x} ${g}"your message"${x}         One-shot message`);
+  console.log("");
+
+  for (const [group, cmds] of Object.entries(groups)) {
+    if (cmds.length === 0) continue;
+    console.log(`  ${b}${group}${x}`);
+    for (const cmd of cmds) {
+      console.log(`    ${c}${cmd.name.padEnd(12)}${x} ${g}${cmd.desc}${x}`);
+    }
+    console.log("");
+  }
+
+  console.log(`  ${g}Config: ~/.camelagi/config.yaml${x}`);
+  console.log("");
   process.exit(0);
 }
 
