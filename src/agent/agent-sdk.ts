@@ -1,8 +1,16 @@
 // Path 1: Claude Agent SDK (full agent with tools, thinking, subagents)
 
 import { query, createSdkMcpServer, type HookCallback } from "@anthropic-ai/claude-agent-sdk";
+import { createRequire } from "node:module";
+import path from "node:path";
 import type { Message } from "../core/types.js";
 import type { ToolDef } from "../core/types.js";
+
+// Resolve the SDK's bundled cli.js using realpath to handle symlinks
+import fs from "node:fs";
+const _require = createRequire(import.meta.url);
+const sdkEntry = fs.realpathSync(_require.resolve("@anthropic-ai/claude-agent-sdk"));
+const sdkCliPath = path.join(path.dirname(sdkEntry), "cli.js");
 import { memorySearchTool, memoryGetTool, createScopedMemoryTools } from "../tools/memory.js";
 import { agentMemoryDir } from "../workspace.js";
 import { patchTool } from "../tools/patch.js";
@@ -40,6 +48,16 @@ const BUILTIN_TOOLS = [
   "WebSearch", "WebFetch",
   "Agent",
 ] as const;
+
+/** Extract text from an SDK "assistant" message's content blocks */
+function extractAssistantText(msg: any): string {
+  if (msg.type !== "assistant" || !msg.message?.content) return "";
+  const parts = Array.isArray(msg.message.content) ? msg.message.content : [];
+  return parts
+    .filter((b: any) => b.type === "text" && b.text)
+    .map((b: any) => b.text)
+    .join("");
+}
 
 export async function runAgentSdk(
   apiKey: string,
@@ -159,10 +177,14 @@ export async function runAgentSdk(
       ...(disallowedTools && { disallowedTools }),
       mcpServers: { camelagi: mcpServer, ...(opts?.mcpServers ?? {}) },
       maxTurns: opts?.maxTurns ?? DEFAULT_MAX_TURNS,
+      pathToClaudeCodeExecutable: sdkCliPath,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
       cwd: process.cwd(),
-      env: { ANTHROPIC_API_KEY: apiKey },
+      env: {
+        ...process.env,
+        ...buildSdkEnv(apiKey, opts?.provider, opts?.baseUrl),
+      },
       thinking,
       ...(opts?.effort && { effort: opts.effort }),
       ...(opts?.maxBudgetUsd && { maxBudgetUsd: opts.maxBudgetUsd }),
@@ -177,41 +199,94 @@ export async function runAgentSdk(
     },
   });
 
-  for await (const message of q) {
-    if (message.type === "result") {
-      const resultMsg = message as unknown as {
-        type: "result"; result: string; session_id?: string;
-        usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
-      };
-      result = resultMsg.result;
-      sdkSessionId = resultMsg.session_id;
+  // The for-await loop may throw if the SDK subprocess exits unexpectedly
+  // (e.g. non-Claude models via OpenRouter). If we already captured a result
+  // from "assistant" messages, we still want to return it.
+  try {
+    for await (const message of q) {
+      const msg = message as any;
 
-      if (resultMsg.usage && emit) {
-        emit({ type: "usage", inputTokens: resultMsg.usage.input_tokens ?? 0, outputTokens: resultMsg.usage.output_tokens ?? 0, cacheReadTokens: resultMsg.usage.cache_read_input_tokens, cacheWriteTokens: resultMsg.usage.cache_creation_input_tokens });
+      // "assistant" messages: non-Claude models (via OpenRouter) emit these
+      // with the response text instead of a final "result" message.
+      const assistantText = extractAssistantText(msg);
+      if (assistantText) {
+        result = assistantText;
+        if (msg.session_id) sdkSessionId = msg.session_id;
       }
-      if (resultMsg.usage && opts?.sessionId) {
-        recordUsage(opts.sessionId, { inputTokens: resultMsg.usage.input_tokens ?? 0, outputTokens: resultMsg.usage.output_tokens ?? 0, cacheReadTokens: resultMsg.usage.cache_read_input_tokens ?? 0, cacheWriteTokens: resultMsg.usage.cache_creation_input_tokens ?? 0 });
+
+      if (message.type === "result") {
+        const resultMsg = message as unknown as {
+          type: "result"; result: string; session_id?: string;
+          usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
+        };
+        // Only overwrite if non-empty (non-Claude models return text via
+        // "assistant" messages; the trailing "result" may be empty).
+        if (resultMsg.result) {
+          result = resultMsg.result;
+        }
+        sdkSessionId = resultMsg.session_id ?? sdkSessionId;
+
+        if (resultMsg.usage && emit) {
+          emit({ type: "usage", inputTokens: resultMsg.usage.input_tokens ?? 0, outputTokens: resultMsg.usage.output_tokens ?? 0, cacheReadTokens: resultMsg.usage.cache_read_input_tokens, cacheWriteTokens: resultMsg.usage.cache_creation_input_tokens });
+        }
+        if (resultMsg.usage && opts?.sessionId) {
+          recordUsage(opts.sessionId, { inputTokens: resultMsg.usage.input_tokens ?? 0, outputTokens: resultMsg.usage.output_tokens ?? 0, cacheReadTokens: resultMsg.usage.cache_read_input_tokens ?? 0, cacheWriteTokens: resultMsg.usage.cache_creation_input_tokens ?? 0 });
+        }
+        emit?.({ type: "chunk", text: result });
+      } else if (message.type === "system" && emit) {
+        const sysMsg = message as unknown as { type: "system"; subtype?: string; session_id?: string; agent_id?: string; task_id?: string; tool_use_id?: string; tool_count?: number; duration_ms?: number };
+        if (sysMsg.subtype === "init" && sysMsg.session_id) { sdkSessionId = sysMsg.session_id; emit({ type: "init", sessionId: sysMsg.session_id }); }
+        else if (sysMsg.subtype === "task_started") { emit({ type: "subagent_start", agentId: sysMsg.agent_id ?? "subagent", taskId: sysMsg.task_id }); }
+        else if (sysMsg.subtype === "task_progress") { emit({ type: "subagent_progress", agentId: sysMsg.agent_id ?? "subagent", toolCount: sysMsg.tool_count, duration: sysMsg.duration_ms ? Math.round(sysMsg.duration_ms / 1000) : undefined }); }
+        else if (sysMsg.subtype === "task_notification") { emit({ type: "subagent_done", agentId: sysMsg.agent_id ?? "subagent", toolUseId: sysMsg.tool_use_id }); }
+      } else if (message.type === "stream_event" && emit) {
+        const streamMsg = message as unknown as { type: "stream_event"; event: { type: string; content_block?: { type: string }; delta?: { type: string; text?: string; thinking?: string } } };
+        const event = streamMsg.event;
+        if (event.type === "content_block_start" && event.content_block?.type === "thinking") { emit({ type: "thinking", state: "start" }); }
+        else if (event.type === "content_block_delta") {
+          if (event.delta?.type === "text_delta" && event.delta.text) emit({ type: "stream_text", text: event.delta.text });
+          else if (event.delta?.type === "thinking_delta" && event.delta.thinking) emit({ type: "thinking_delta", text: event.delta.thinking });
+        }
+        else if (event.type === "content_block_stop") { emit({ type: "thinking", state: "end" }); }
       }
-      emit?.({ type: "chunk", text: result });
-    } else if (message.type === "system" && emit) {
-      const sysMsg = message as unknown as { type: "system"; subtype?: string; session_id?: string; agent_id?: string; task_id?: string; tool_use_id?: string; tool_count?: number; duration_ms?: number };
-      if (sysMsg.subtype === "init" && sysMsg.session_id) { sdkSessionId = sysMsg.session_id; emit({ type: "init", sessionId: sysMsg.session_id }); }
-      else if (sysMsg.subtype === "task_started") { emit({ type: "subagent_start", agentId: sysMsg.agent_id ?? "subagent", taskId: sysMsg.task_id }); }
-      else if (sysMsg.subtype === "task_progress") { emit({ type: "subagent_progress", agentId: sysMsg.agent_id ?? "subagent", toolCount: sysMsg.tool_count, duration: sysMsg.duration_ms ? Math.round(sysMsg.duration_ms / 1000) : undefined }); }
-      else if (sysMsg.subtype === "task_notification") { emit({ type: "subagent_done", agentId: sysMsg.agent_id ?? "subagent", toolUseId: sysMsg.tool_use_id }); }
-    } else if (message.type === "stream_event" && emit) {
-      const streamMsg = message as unknown as { type: "stream_event"; event: { type: string; content_block?: { type: string }; delta?: { type: string; text?: string; thinking?: string } } };
-      const event = streamMsg.event;
-      if (event.type === "content_block_start" && event.content_block?.type === "thinking") { emit({ type: "thinking", state: "start" }); }
-      else if (event.type === "content_block_delta") {
-        if (event.delta?.type === "text_delta" && event.delta.text) emit({ type: "stream_text", text: event.delta.text });
-        else if (event.delta?.type === "thinking_delta" && event.delta.thinking) emit({ type: "thinking_delta", text: event.delta.thinking });
-      }
-      else if (event.type === "content_block_stop") { emit({ type: "thinking", state: "end" }); }
     }
+  } catch (err: unknown) {
+    // If the subprocess exited but we already have a response, return it.
+    // Otherwise, re-throw so the retry/error handling picks it up.
+    if (!result) throw err;
   }
 
   const userMsg: Message = { role: "user", content: userMessage };
   const aiMsg: Message = { role: "assistant", content: result };
   return { response: result, newMessages: [userMsg, aiMsg], usage: null, sessionId: sdkSessionId };
+}
+
+/** Build environment variables for the SDK subprocess based on provider */
+function buildSdkEnv(apiKey: string, provider?: string, baseUrl?: string): Record<string, string> {
+  // OpenRouter: use ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN
+  if (baseUrl?.includes("openrouter")) {
+    // SDK expects /api not /api/v1
+    const sdkBaseUrl = baseUrl.replace(/\/v1\/?$/, "");
+    return {
+      ANTHROPIC_BASE_URL: sdkBaseUrl,
+      ANTHROPIC_AUTH_TOKEN: apiKey,
+      ANTHROPIC_API_KEY: "",
+    };
+  }
+
+  // Direct Anthropic
+  if (provider === "anthropic" || !provider) {
+    return { ANTHROPIC_API_KEY: apiKey };
+  }
+
+  // Custom base URL (non-OpenRouter)
+  if (baseUrl) {
+    return {
+      ANTHROPIC_API_KEY: apiKey,
+      ANTHROPIC_BASE_URL: baseUrl,
+    };
+  }
+
+  // Default
+  return { ANTHROPIC_API_KEY: apiKey };
 }
