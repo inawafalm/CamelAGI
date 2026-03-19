@@ -5,7 +5,8 @@ set -e
 # Usage: curl -fsSL https://raw.githubusercontent.com/inawafalm/CamelAGI/main/install.sh | bash
 
 REPO="inawafalm/CamelAGI"
-INSTALL_DIR="$HOME/.camelagi/bin"
+VERSIONS_DIR="$HOME/.camelagi/versions"
+BIN_DIR="$HOME/.camelagi/bin"
 
 # Colors
 GREEN='\033[0;32m'
@@ -57,35 +58,49 @@ fi
 
 if [ -z "$latest" ]; then
     echo -e "  ${RED}Could not determine latest version${NC}"
-    echo -e "  ${DIM}Check https://github.com/$REPO/releases${NC}"
     exit 1
 fi
 
-echo -e "  ${DIM}Version: ${latest}${NC}"
+# Strip v prefix for version directory
+version="${latest#v}"
+echo -e "  ${DIM}Version: ${version}${NC}"
+
+# Check if already installed at this version
+if [ -f "$VERSIONS_DIR/$version" ]; then
+    echo -e "  ${GREEN}Already installed (v${version})${NC}"
+    echo ""
+    exit 0
+fi
 
 # Download binary
 binary_name="camelagi-${platform}"
 download_url="https://github.com/$REPO/releases/download/${latest}/${binary_name}"
 
 echo -e "  ${CYAN}Downloading...${NC}"
-mkdir -p "$INSTALL_DIR"
-dest="$INSTALL_DIR/camel"
+mkdir -p "$VERSIONS_DIR"
+mkdir -p "$BIN_DIR"
+dest="$VERSIONS_DIR/$version"
 
 if command -v curl >/dev/null 2>&1; then
     if ! curl -fsSL -o "$dest" "$download_url"; then
         echo -e "  ${RED}Download failed${NC}"
         echo -e "  ${DIM}URL: $download_url${NC}"
-        echo -e "  ${DIM}Binary for your platform may not be available yet.${NC}"
+        rm -f "$dest"
         exit 1
     fi
 else
     if ! wget -q -O "$dest" "$download_url"; then
         echo -e "  ${RED}Download failed${NC}"
+        rm -f "$dest"
         exit 1
     fi
 fi
 
 chmod +x "$dest"
+
+# Create symlinks in ~/.camelagi/bin/
+ln -sf "$dest" "$BIN_DIR/camel"
+ln -sf "$dest" "$BIN_DIR/camelagi"
 
 # Create symlinks in /usr/local/bin (already in PATH — works immediately)
 if [ -d "/usr/local/bin" ] && [ -w "/usr/local/bin" ]; then
@@ -93,7 +108,6 @@ if [ -d "/usr/local/bin" ] && [ -w "/usr/local/bin" ]; then
     ln -sf "$dest" /usr/local/bin/camelagi
     echo -e "  ${DIM}Linked to /usr/local/bin/${NC}"
 else
-    # Try with sudo
     if sudo ln -sf "$dest" /usr/local/bin/camel 2>/dev/null && \
        sudo ln -sf "$dest" /usr/local/bin/camelagi 2>/dev/null; then
         echo -e "  ${DIM}Linked to /usr/local/bin/${NC}"
@@ -106,7 +120,7 @@ else
                 return 0
             fi
             echo "" >> "$profile"
-            echo "export PATH=\"$INSTALL_DIR:\$PATH\" $marker" >> "$profile"
+            echo "export PATH=\"$BIN_DIR:\$PATH\" $marker" >> "$profile"
             echo -e "  ${DIM}Added to PATH in $profile${NC}"
         }
 
@@ -125,14 +139,19 @@ else
     fi
 fi
 
+# Clean old versions (keep last 3)
+if [ -d "$VERSIONS_DIR" ]; then
+    ls -t "$VERSIONS_DIR" | tail -n +4 | while read old; do
+        rm -f "$VERSIONS_DIR/$old"
+    done
+fi
+
 echo ""
-echo -e "  ${GREEN}${BOLD}✅ CamelAGI installed!${NC}"
-echo ""
-echo -e "  ${DIM}Location: $dest${NC}"
-echo -e "  ${DIM}Version:  $latest${NC}"
+echo -e "  ${GREEN}${BOLD}✅ CamelAGI installed! (v${version})${NC}"
 echo ""
 echo -e "  ${CYAN}Get started:${NC}"
-echo -e "    ${BOLD}camel bootstrap${NC}     First-time setup"
-echo -e "    ${BOLD}camel serve${NC}         Start the server"
+echo -e "    ${BOLD}camel setup${NC}         Configure AI provider"
 echo -e "    ${BOLD}camel chat${NC}          Interactive TUI"
+echo -e "    ${BOLD}camel serve${NC}         Start the server"
+echo -e "    ${BOLD}camel update${NC}        Update to latest version"
 echo ""

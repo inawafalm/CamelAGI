@@ -1,11 +1,13 @@
-// Check for newer version on npm registry (non-blocking, fails silently)
+// Check for newer version on GitHub Releases (non-blocking, fails silently)
 
-import { VERSION, NAME } from "./version.js";
+import { VERSION } from "./version.js";
+
+const REPO = "inawafalm/CamelAGI";
 
 /** Compare semver strings. Returns 1 if a > b, -1 if a < b, 0 if equal. */
 function compareSemver(a: string, b: string): number {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
+  const pa = a.replace(/^v/, "").split(".").map(Number);
+  const pb = b.replace(/^v/, "").split(".").map(Number);
   for (let i = 0; i < 3; i++) {
     if ((pa[i] ?? 0) > (pb[i] ?? 0)) return 1;
     if ((pa[i] ?? 0) < (pb[i] ?? 0)) return -1;
@@ -14,18 +16,18 @@ function compareSemver(a: string, b: string): number {
 }
 
 /**
- * Check npm registry for a newer version.
+ * Check GitHub releases for a newer version.
  * Returns update info or null. Never throws.
  */
 export async function checkForUpdate(): Promise<{ current: string; latest: string } | null> {
   try {
-    const res = await fetch(`https://registry.npmjs.org/${NAME}/latest`, {
+    const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
       signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return null;
 
-    const data = await res.json() as { version?: string };
-    const latest = data.version;
+    const data = await res.json() as { tag_name?: string };
+    const latest = data.tag_name?.replace(/^v/, "");
     if (!latest) return null;
 
     if (compareSemver(latest, VERSION) > 0) {
@@ -42,7 +44,7 @@ export function printUpdateNotice(): void {
   checkForUpdate().then((update) => {
     if (update) {
       console.log(`\n\x1b[33m  Update available: ${update.current} → ${update.latest}\x1b[0m`);
-      console.log(`\x1b[90m  Run: npm update -g camelagi\x1b[0m\n`);
+      console.log(`\x1b[90m  Run: camel update\x1b[0m\n`);
     }
   }).catch(() => {});
 }

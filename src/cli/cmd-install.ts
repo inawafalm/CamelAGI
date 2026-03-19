@@ -1,77 +1,76 @@
-// CLI command: camelagi install — self-install to ~/.camelagi/bin/ and add to PATH
+// CLI command: camelagi install — self-install to ~/.camelagi/versions/ with symlinks
 
 import { register } from "./registry.js";
+import { VERSION } from "../core/version.js";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-const INSTALL_DIR = path.join(os.homedir(), ".camelagi", "bin");
+const VERSIONS_DIR = path.join(os.homedir(), ".camelagi", "versions");
+const BIN_DIR = path.join(os.homedir(), ".camelagi", "bin");
 
 register({
   name: "install",
-  description: "Install camelagi to ~/.camelagi/bin/ and add to PATH",
-  async run(args: string[]) {
-    const target = args[0]; // optional version target (unused for now)
+  description: "Install camelagi to ~/.camelagi/versions/ and add to PATH",
+  async run() {
+    // 1. Create directories
+    fs.mkdirSync(VERSIONS_DIR, { recursive: true });
+    fs.mkdirSync(BIN_DIR, { recursive: true });
 
-    // 1. Create install directory
-    fs.mkdirSync(INSTALL_DIR, { recursive: true });
-
-    // 2. Copy current binary to install directory
+    // 2. Copy current binary to versions directory
     const currentBin = process.argv[0];
-    const destBin = path.join(INSTALL_DIR, "camel");
-    const destBinAlt = path.join(INSTALL_DIR, "camelagi");
+    const destBin = path.join(VERSIONS_DIR, VERSION);
 
     try {
       fs.copyFileSync(currentBin, destBin);
       fs.chmodSync(destBin, 0o755);
-      // Create symlink for `camelagi` alias
-      try { fs.unlinkSync(destBinAlt); } catch {}
-      fs.symlinkSync("camel", destBinAlt);
     } catch (err) {
       console.error(`Failed to copy binary: ${err instanceof Error ? err.message : err}`);
       process.exit(1);
     }
 
-    console.log(`  Installed to ${destBin}`);
+    // 3. Create symlinks in bin directory
+    const camelLink = path.join(BIN_DIR, "camel");
+    const camelagiLink = path.join(BIN_DIR, "camelagi");
+    try { fs.unlinkSync(camelLink); } catch {}
+    try { fs.unlinkSync(camelagiLink); } catch {}
+    fs.symlinkSync(destBin, camelLink);
+    fs.symlinkSync(destBin, camelagiLink);
 
-    // 3. Add to PATH via shell profile
-    const shellProfiles = getShellProfiles();
-    const pathLine = `export PATH="${INSTALL_DIR}:$PATH"`;
-    const marker = "# CamelAGI";
-    const fullLine = `${pathLine} ${marker}`;
-    let addedToProfile = false;
+    console.log(`  Installed v${VERSION} to ${destBin}`);
 
-    for (const profile of shellProfiles) {
-      if (!fs.existsSync(profile)) continue;
-      const content = fs.readFileSync(profile, "utf-8");
-      if (content.includes(marker)) {
-        addedToProfile = true;
-        continue; // Already added
+    // 4. Symlink to /usr/local/bin if possible
+    try {
+      if (fs.existsSync("/usr/local/bin")) {
+        fs.unlinkSync("/usr/local/bin/camel");
       }
-      fs.appendFileSync(profile, `\n${fullLine}\n`);
-      addedToProfile = true;
-      console.log(`  Added to PATH in ${profile}`);
-    }
+    } catch {}
+    try {
+      if (fs.existsSync("/usr/local/bin")) {
+        fs.unlinkSync("/usr/local/bin/camelagi");
+      }
+    } catch {}
 
-    // If no existing profile found, create .zshrc (macOS default)
-    if (!addedToProfile) {
-      const zshrc = path.join(os.homedir(), ".zshrc");
-      fs.appendFileSync(zshrc, `\n${fullLine}\n`);
-      console.log(`  Added to PATH in ${zshrc}`);
-    }
-
-    if (target) {
-      console.log(`  Version: ${target}`);
+    try {
+      fs.symlinkSync(destBin, "/usr/local/bin/camel");
+      fs.symlinkSync(destBin, "/usr/local/bin/camelagi");
+      console.log(`  Linked to /usr/local/bin/`);
+    } catch {
+      // Fallback to shell profile
+      const shellProfiles = [
+        path.join(os.homedir(), ".zshrc"),
+        path.join(os.homedir(), ".bashrc"),
+        path.join(os.homedir(), ".bash_profile"),
+      ];
+      const pathLine = `export PATH="${BIN_DIR}:$PATH" # CamelAGI`;
+      for (const profile of shellProfiles) {
+        if (!fs.existsSync(profile)) continue;
+        const content = fs.readFileSync(profile, "utf-8");
+        if (content.includes("# CamelAGI")) continue;
+        fs.appendFileSync(profile, `\n${pathLine}\n`);
+        console.log(`  Added to PATH in ${profile}`);
+        break;
+      }
     }
   },
 });
-
-function getShellProfiles(): string[] {
-  const home = os.homedir();
-  return [
-    path.join(home, ".zshrc"),
-    path.join(home, ".bashrc"),
-    path.join(home, ".bash_profile"),
-    path.join(home, ".profile"),
-  ];
-}
