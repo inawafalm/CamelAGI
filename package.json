@@ -1,6 +1,6 @@
 {
   "name": "camelagi",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Personal AI agent powered by Claude Agent SDK — manage everything from Telegram",
   "type": "module",
   "bin": {
@@ -18,7 +18,7 @@
     "compile:all": "npm run build && mkdir -p release && bun build dist/cli.js --compile --target=bun-darwin-arm64 --outfile=release/camelagi-darwin-arm64 && bun build dist/cli.js --compile --target=bun-darwin-x64 --outfile=release/camelagi-darwin-x64 && bun build dist/cli.js --compile --target=bun-linux-x64 --outfile=release/camelagi-linux-x64 && bun build dist/cli.js --compile --target=bun-linux-arm64 --outfile=release/camelagi-linux-arm64"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.x",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.79",
     "@anthropic-ai/sdk": "^0.x",
     "@clack/prompts": "^1.1.0",
     "@mariozechner/pi-tui": "^0.57.1",
