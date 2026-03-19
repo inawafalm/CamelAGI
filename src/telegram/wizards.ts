@@ -317,3 +317,148 @@ export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: (
     },
   };
 }
+
+// ─── MCP Add Wizard ──────────────────────────────────────────────────
+
+/** Derive a short server name from a URL */
+function mcpNameFromUrl(url: string, existing: string[]): string {
+  try {
+    const host = new URL(url).hostname;
+    let base = host
+      .replace(/^(www|api|mcp)\./, "")
+      .replace(/\.(com|io|ai|dev|org|net)$/, "")
+      .replace(/\./g, "-");
+    if (!base) base = "server";
+    let name = base;
+    let i = 2;
+    while (existing.includes(name)) { name = `${base}${i++}`; }
+    return name;
+  } catch {
+    return `server${existing.length + 1}`;
+  }
+}
+
+/** Derive a short server name from a stdio command */
+function mcpNameFromCommand(command: string, existing: string[]): string {
+  const match = command.match(/(?:@[\w-]+\/)?([\w-]+)\s*$/);
+  let base = match?.[1] ?? "server";
+  base = base
+    .replace(/^(mcp-server-|server-|mcp-)/, "")
+    .replace(/(-mcp|-server)$/, "");
+  if (!base) base = "server";
+  let name = base;
+  let i = 2;
+  while (existing.includes(name)) { name = `${base}${i++}`; }
+  return name;
+}
+
+export function createMcpAddWizard(getConfig: () => Config, agentId?: string): WizardDef {
+  return {
+    id: "mcp-add",
+    steps: [
+      {
+        id: "transport",
+        prompt: [
+          "Server type:\n",
+          "🌐 HTTP — Remote server via URL",
+          "  e.g. https://code.claude.com/docs/mcp\n",
+          "📡 SSE — Streaming server via URL",
+          "  e.g. https://api.example.com/mcp/sse\n",
+          "⚙️ Command — Local tool on your machine",
+          "  e.g. npx -y @modelcontextprotocol/server-github",
+        ].join("\n"),
+        options: [
+          { label: "🌐 HTTP", value: "http" },
+          { label: "📡 SSE", value: "sse" },
+          { label: "⚙️ Command", value: "stdio" },
+        ],
+      },
+      {
+        id: "url",
+        prompt: [
+          "Send the MCP server URL:\n",
+          "Examples:",
+          "  https://code.claude.com/docs/mcp",
+          "  https://mcp.example.com/api",
+        ].join("\n"),
+        skip: (data) => data.transport === "stdio",
+        validate: (input) => {
+          try { new URL(input); return null; }
+          catch { return "Not a valid URL. Try again:"; }
+        },
+      },
+      {
+        id: "command",
+        prompt: [
+          "Send the full command:\n",
+          "Examples:",
+          "  npx -y @modelcontextprotocol/server-github",
+          "  npx -y @modelcontextprotocol/server-filesystem ~/Documents",
+          "  npx -y @anthropic-ai/mcp-server-brave-search",
+        ].join("\n"),
+        skip: (data) => data.transport !== "stdio",
+        validate: (input) => input.trim() ? null : "Command cannot be empty.",
+      },
+      {
+        id: "auth",
+        prompt: "Auth token? (sent as Bearer header)\n\nPaste your API key or token, or skip.",
+        skip: (data) => data.transport === "stdio",
+        options: [{ label: "Skip — no auth", value: "__skip__" }],
+      },
+      {
+        id: "env",
+        prompt: "Environment variable?\n\nExample: GITHUB_TOKEN=ghp_xxxx",
+        skip: (data) => data.transport !== "stdio",
+        options: [{ label: "Skip — no env", value: "__skip__" }],
+      },
+    ],
+    onComplete: async (data) => {
+      const config = getConfig();
+      const currentServers = agentId && config.agents[agentId]
+        ? config.agents[agentId]?.mcp?.servers ?? {}
+        : config.mcp.servers;
+      const existing = Object.keys(currentServers);
+
+      let name: string;
+      let serverConfig: Record<string, unknown>;
+
+      if (data.transport === "stdio") {
+        const parts = data.command.trim().split(/\s+/);
+        name = mcpNameFromCommand(data.command, existing);
+        serverConfig = {
+          type: "stdio",
+          command: parts[0],
+          args: parts.slice(1),
+        };
+        if (data.env && data.env !== "__skip__") {
+          const eqIdx = data.env.indexOf("=");
+          if (eqIdx > 0) {
+            serverConfig.env = { [data.env.slice(0, eqIdx)]: data.env.slice(eqIdx + 1) };
+          }
+        }
+      } else {
+        name = mcpNameFromUrl(data.url, existing);
+        serverConfig = {
+          type: data.transport,
+          url: data.url,
+        };
+        if (data.auth && data.auth !== "__skip__") {
+          serverConfig.headers = { Authorization: `Bearer ${data.auth}` };
+        }
+      }
+
+      const updated = { ...currentServers, [name]: serverConfig };
+      if (agentId && config.agents[agentId]) {
+        const agents = { ...config.agents };
+        agents[agentId] = { ...agents[agentId], mcp: { servers: updated } } as typeof agents[string];
+        saveConfig({ agents });
+      } else {
+        saveConfig({ mcp: { servers: updated } });
+      }
+
+      const scope = agentId && config.agents[agentId] ? config.agents[agentId].name : "global";
+      const detail = data.url ?? data.command;
+      return `MCP server added! (${scope})\n\nName: ${name}\nType: ${data.transport}\n${detail}`;
+    },
+  };
+}

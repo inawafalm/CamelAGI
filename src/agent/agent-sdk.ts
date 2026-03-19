@@ -173,7 +173,12 @@ export async function runAgentSdk(
     options: {
       model,
       systemPrompt,
-      allowedTools: [...BUILTIN_TOOLS],
+      allowedTools: [
+        ...BUILTIN_TOOLS,
+        // Allow all tools from each configured MCP server
+        "mcp__camelagi__*",
+        ...Object.keys(opts?.mcpServers ?? {}).map(name => `mcp__${name}__*`),
+      ],
       ...(disallowedTools && { disallowedTools }),
       mcpServers: { camelagi: mcpServer, ...(opts?.mcpServers ?? {}) },
       maxTurns: opts?.maxTurns ?? DEFAULT_MAX_TURNS,

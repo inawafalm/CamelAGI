@@ -64,11 +64,33 @@ const schema = z.object({
     deny: z.array(z.string()).default([]),
   }).default(() => ({ enabled: true, deny: [] })),
   mcp: z.object({
-    servers: z.record(z.string(), z.object({
-      command: z.string(),
-      args: z.array(z.string()).default([]),
-      env: z.record(z.string(), z.string()).default({}),
-    })).default({}),
+    servers: z.record(z.string(), z.preprocess(
+      // Default type to "stdio" for backward compat (existing configs omit it)
+      (val) => {
+        if (val && typeof val === "object" && !("type" in (val as Record<string, unknown>))) {
+          return { ...(val as Record<string, unknown>), type: "stdio" };
+        }
+        return val;
+      },
+      z.discriminatedUnion("type", [
+        z.object({
+          type: z.literal("stdio"),
+          command: z.string(),
+          args: z.array(z.string()).default([]),
+          env: z.record(z.string(), z.string()).default({}),
+        }),
+        z.object({
+          type: z.literal("http"),
+          url: z.string(),
+          headers: z.record(z.string(), z.string()).default({}),
+        }),
+        z.object({
+          type: z.literal("sse"),
+          url: z.string(),
+          headers: z.record(z.string(), z.string()).default({}),
+        }),
+      ]),
+    )).default({}),
   }).default(() => ({ servers: {} })),
   hooks: z.object({
     enabled: z.boolean().default(false),
@@ -105,6 +127,34 @@ const schema = z.object({
     thinking: z.enum(["off", "low", "medium", "high"]).optional(),
     effort: z.enum(["low", "medium", "high", "max"]).optional(),
     maxTurns: z.number().optional(),
+    mcp: z.object({
+      servers: z.record(z.string(), z.preprocess(
+        (val) => {
+          if (val && typeof val === "object" && !("type" in (val as Record<string, unknown>))) {
+            return { ...(val as Record<string, unknown>), type: "stdio" };
+          }
+          return val;
+        },
+        z.discriminatedUnion("type", [
+          z.object({
+            type: z.literal("stdio"),
+            command: z.string(),
+            args: z.array(z.string()).default([]),
+            env: z.record(z.string(), z.string()).default({}),
+          }),
+          z.object({
+            type: z.literal("http"),
+            url: z.string(),
+            headers: z.record(z.string(), z.string()).default({}),
+          }),
+          z.object({
+            type: z.literal("sse"),
+            url: z.string(),
+            headers: z.record(z.string(), z.string()).default({}),
+          }),
+        ]),
+      )).default({}),
+    }).optional(),
     telegram: z.object({
       botToken: z.string(),
       allowedUsers: z.array(z.number()).default([]),

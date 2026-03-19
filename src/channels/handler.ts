@@ -2,6 +2,7 @@
 // Each channel calls these with its adapter — no platform-specific code here.
 
 import type { Config } from "../core/config.js";
+import { saveConfig } from "../core/config.js";
 import type { AgentEvent } from "../agent.js";
 import type { ChannelAdapter, ResolvedAgentBase, RuntimeState } from "./adapter.js";
 import { createClient } from "../model.js";
@@ -92,6 +93,7 @@ export async function handleCommand(
           "/model <name> — Switch model for this chat",
           "/think <level> — Set thinking (off|low|medium|high)",
           "/effort <level> — Set effort (low|medium|high|max)",
+          "/mcp — Manage MCP tool servers",
           "/usage — Token usage for this session",
           "/skills — List active skills",
           "/export — Export session as markdown file",
@@ -242,6 +244,104 @@ export async function handleCommand(
         handled: true,
         response: `Switched to session: ${arg}${existing.length > 0 ? ` (${existing.length} messages)` : " (new)"}`,
       };
+    }
+
+    case "mcp": {
+      const config = getConfig();
+      // Determine which MCP scope: agent-specific or global
+      const isAgent = agentId && agentId !== "default" && config.agents[agentId];
+      const scope = isAgent ? `agent "${config.agents[agentId].name}"` : "global";
+      const servers = isAgent
+        ? config.agents[agentId]?.mcp?.servers ?? {}
+        : config.mcp.servers;
+
+      if (!arg) {
+        // List servers
+        const entries = Object.entries(servers);
+        if (entries.length === 0) {
+          return {
+            handled: true,
+            response: [
+              `No MCP servers (${scope}).\n`,
+              "Add one:",
+              "  /mcp add http <url>",
+              "  /mcp add sse <url>",
+              "  /mcp add <name> <command...>",
+              "  /mcp remove <name>",
+            ].join("\n"),
+          };
+        }
+        const lines = entries.map(([name, s]) => {
+          const cfg = s as Record<string, unknown>;
+          if (cfg.type === "stdio") {
+            const args = Array.isArray(cfg.args) ? (cfg.args as string[]).join(" ") : "";
+            return `• ${name} (stdio)\n  ${cfg.command} ${args}`.trimEnd();
+          }
+          return `• ${name} (${cfg.type})\n  ${cfg.url}`;
+        });
+        return { handled: true, response: `MCP Servers (${scope}):\n\n${lines.join("\n\n")}` };
+      }
+
+      const parts = arg.split(/\s+/);
+      const sub = parts[0];
+
+      if (sub === "add") {
+        const type = parts[1];
+        if (!type) {
+          return { handled: true, response: "Usage:\n  /mcp add http <url>\n  /mcp add sse <url>\n  /mcp add <name> <command...>" };
+        }
+
+        let name: string;
+        let serverConfig: Record<string, unknown>;
+
+        if (type === "http" || type === "sse") {
+          const url = parts[2];
+          if (!url) return { handled: true, response: `Usage: /mcp add ${type} <url>` };
+          try { new URL(url); } catch { return { handled: true, response: "Invalid URL." }; }
+          // Auto-generate name from hostname
+          const host = new URL(url).hostname;
+          name = host.replace(/^(www|api|mcp)\./, "").replace(/\.(com|io|ai|dev|org|net)$/, "").replace(/\./g, "-") || "server";
+          let i = 2;
+          const existingNames = Object.keys(servers);
+          while (existingNames.includes(name)) { name = `${name}${i++}`; }
+          serverConfig = { type, url };
+        } else {
+          // stdio: /mcp add <name> <command...>
+          name = type;
+          const command = parts.slice(2);
+          if (command.length === 0) return { handled: true, response: "Usage: /mcp add <name> <command...>\n\ne.g. /mcp add github npx -y @modelcontextprotocol/server-github" };
+          serverConfig = { type: "stdio", command: command[0], args: command.slice(1) };
+        }
+
+        const updated = { ...servers, [name]: serverConfig } as Record<string, unknown>;
+        if (isAgent) {
+          const agents = { ...config.agents };
+          agents[agentId] = { ...agents[agentId], mcp: { servers: updated } } as typeof agents[string];
+          saveConfig({ agents });
+        } else {
+          saveConfig({ mcp: { servers: updated } });
+        }
+        return { handled: true, response: `Added MCP server: ${name} (${scope})` };
+      }
+
+      if (sub === "remove" || sub === "rm") {
+        const name = parts[1];
+        if (!name) return { handled: true, response: "Usage: /mcp remove <name>" };
+        if (!(name in servers)) return { handled: true, response: `Server "${name}" not found.` };
+
+        const updated = { ...servers };
+        delete (updated as Record<string, unknown>)[name];
+        if (isAgent) {
+          const agents = { ...config.agents };
+          agents[agentId] = { ...agents[agentId], mcp: { servers: updated } };
+          saveConfig({ agents });
+        } else {
+          saveConfig({ mcp: { servers: updated } });
+        }
+        return { handled: true, response: `Removed MCP server: ${name}` };
+      }
+
+      return { handled: true, response: "Usage: /mcp [add|remove]\n\n/mcp — list servers\n/mcp add http <url>\n/mcp add sse <url>\n/mcp add <name> <command...>\n/mcp remove <name>" };
     }
 
     default:

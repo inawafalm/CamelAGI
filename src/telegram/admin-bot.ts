@@ -11,7 +11,7 @@ import { CHARS_PER_TOKEN } from "../core/constants.js";
 import { getActiveBotIds, startBot, stopBot } from "../telegram.js";
 import type { BotState } from "./types.js";
 import { startWizard, advanceWizard, cancelWizard, hasActiveWizard } from "./wizard.js";
-import { createSetupWizard, createNewAgentWizard } from "./wizards.js";
+import { createSetupWizard, createNewAgentWizard, createMcpAddWizard } from "./wizards.js";
 import { createVoiceWizard, createVoiceResetWizard } from "./voice-wizard.js";
 import type { WizardDef } from "./wizard.js";
 import { formatAge } from "./helpers.js";
@@ -78,6 +78,7 @@ export async function setupAdminBot(
     { command: "agents", description: "List all agents" },
     { command: "deleteagent", description: "Delete an agent" },
     { command: "soul", description: "View/edit agent SOUL.md" },
+    { command: "mcp", description: "Manage MCP servers" },
     { command: "config", description: "View/update configuration" },
     { command: "sessions", description: "Manage sessions" },
     { command: "status", description: "System health and stats" },
@@ -332,6 +333,9 @@ export async function setupAdminBot(
       "  /deleteagent — pick & delete an agent",
       "  /soul — view/edit agent personality",
       "",
+      "MCP:",
+      "  /mcp — manage MCP tool servers",
+      "",
       "Access:",
       "  /pairing — list pending access requests",
       "",
@@ -552,6 +556,69 @@ export async function setupAdminBot(
     } catch (err) {
       await ctx.reply(`Error: ${err instanceof Error ? err.message : String(err)}`);
     }
+  });
+
+  // ─── MCP Management ──────────────────────────────────────────────────
+
+  b.command("mcp", async (ctx) => {
+    const kb = new InlineKeyboard()
+      .text("➕ Add Server", "mcp:add")
+      .text("📋 List", "mcp:list")
+      .text("🗑 Remove", "mcp:remove");
+    await ctx.reply("MCP Servers", { reply_markup: kb });
+  });
+
+  b.callbackQuery("mcp:add", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await startWizard(ctx.chat!.id, createMcpAddWizard(getConfig), b);
+  });
+
+  b.callbackQuery("mcp:list", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const config = getConfig();
+    const entries = Object.entries(config.mcp.servers);
+    if (entries.length === 0) {
+      await ctx.reply("No MCP servers configured.\n\nUse /mcp → Add to add one.");
+      return;
+    }
+    const lines = entries.map(([name, s]) => {
+      const cfg = s as Record<string, unknown>;
+      if (cfg.type === "stdio") {
+        const args = Array.isArray(cfg.args) ? (cfg.args as string[]).join(" ") : "";
+        return `⚙️ ${name} (stdio)\n   ${cfg.command} ${args}`.trimEnd();
+      }
+      return `${cfg.type === "sse" ? "📡" : "🌐"} ${name} (${cfg.type})\n   ${cfg.url}`;
+    });
+    await ctx.reply(`MCP Servers:\n\n${lines.join("\n\n")}`);
+  });
+
+  b.callbackQuery("mcp:remove", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const config = getConfig();
+    const names = Object.keys(config.mcp.servers);
+    if (names.length === 0) {
+      await ctx.reply("No MCP servers to remove.");
+      return;
+    }
+    const kb = new InlineKeyboard();
+    for (const name of names) {
+      kb.text(`✕ ${name}`, `mcp:rm:${name}`).row();
+    }
+    await ctx.reply("Remove which server?", { reply_markup: kb });
+  });
+
+  b.callbackQuery(/^mcp:rm:/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const name = ctx.callbackQuery.data.replace("mcp:rm:", "");
+    const config = getConfig();
+    const servers = { ...config.mcp.servers };
+    if (!(name in servers)) {
+      await ctx.reply(`Server "${name}" not found.`);
+      return;
+    }
+    delete (servers as Record<string, unknown>)[name];
+    saveConfig({ mcp: { servers } });
+    await ctx.reply(`Removed MCP server: ${name}`);
   });
 
   b.command("sessions", async (ctx) => {
