@@ -232,6 +232,29 @@ export function truncateFile(content: string, maxChars: number): { text: string;
   };
 }
 
+/** Clone an agent's workspace files to a new agent */
+export function cloneAgentWorkspace(sourceId: string, targetId: string, targetName: string): void {
+  ensureAgentDirs(targetId);
+  const sourceDir = agentMemoryDir(sourceId);
+  const targetDir = agentMemoryDir(targetId);
+
+  for (const file of ["SOUL.md", "TOOLS.md", "MEMORY.md"]) {
+    const srcPath = path.join(sourceDir, file);
+    if (fs.existsSync(srcPath)) {
+      fs.copyFileSync(srcPath, path.join(targetDir, file));
+    }
+  }
+
+  // Copy memory directory
+  const srcMemory = path.join(sourceDir, "memory");
+  const tgtMemory = path.join(targetDir, "memory");
+  if (fs.existsSync(srcMemory)) {
+    for (const f of fs.readdirSync(srcMemory).filter(f => f.endsWith(".md"))) {
+      fs.copyFileSync(path.join(srcMemory, f), path.join(tgtMemory, f));
+    }
+  }
+}
+
 /**
  * Load bootstrap files. For agents, checks agent dir first then falls back to global.
  * USER.md always comes from global (same user across agents).

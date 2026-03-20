@@ -13,7 +13,7 @@ import { loadMessages, saveMessage } from "../session.js";
 import { setActiveRun, clearActiveRun, isRunActive, generateRunId } from "./runs.js";
 import { queueOrProcess, drainQueue } from "./queue.js";
 import { compactHistory } from "./compact.js";
-import { withRetry } from "./retry.js";
+import { withRetry, classifyError } from "./retry.js";
 import { acquireLane, Lane } from "./lanes.js";
 import type Anthropic from "@anthropic-ai/sdk";
 
@@ -27,6 +27,8 @@ export interface OrchestrateOpts {
   onEvent?: (event: AgentEvent) => void;
   onRetry?: (attempt: number, kind: ErrorKind) => void;
   onCompact?: (oldCount: number, newCount: number) => void;
+  /** Called when an error occurs (after all retries exhausted) */
+  onError?: (err: Error, kind: ErrorKind) => void;
   agentId?: string;
   resumeSessionId?: string;
   /** Label for session persistence (e.g. "AgentName: ChatTitle") */
@@ -164,6 +166,10 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
       usage: result.usage,
       sdkSessionId: result.sessionId,
     };
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    opts.onError?.(error, classifyError(error));
+    throw error;
   } finally {
     clearActiveRun(runId);
     release();

@@ -23,6 +23,8 @@ import "./cli/cmd-pairing.js";
 import "./cli/cmd-install.js";
 import "./cli/cmd-uninstall.js";
 import "./cli/cmd-update.js";
+import "./cli/cmd-bootstrap.js";
+import "./cli/cmd-status.js";
 
 const args = process.argv.slice(2);
 
@@ -52,7 +54,7 @@ if (args[0] === "--help" || args[0] === "-h" || args.length === 0) {
 
   const categorize: Record<string, string> = {
     bootstrap: "Getting Started", setup: "Getting Started", chat: "Getting Started",
-    serve: "Server", daemon: "Server", logs: "Server",
+    serve: "Server", daemon: "Server", logs: "Server", status: "Server",
     agents: "Agents & Sessions", soul: "Agents & Sessions", sessions: "Agents & Sessions", pairing: "Agents & Sessions",
     config: "Configuration", cron: "Configuration",
     doctor: "Maintenance", reset: "Maintenance", install: "Maintenance", uninstall: "Maintenance",

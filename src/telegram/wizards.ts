@@ -1,9 +1,11 @@
 // Wizard definitions: setup, new agent, validation, presets
 
 import { InlineKeyboard } from "grammy";
+import fs from "node:fs";
+import path from "node:path";
 import type { Config } from "../core/config.js";
 import { loadConfig, saveConfig } from "../core/config.js";
-import { seedAgentWorkspace, agentMemoryDir } from "../workspace.js";
+import { seedAgentWorkspace, agentMemoryDir, cloneAgentWorkspace } from "../workspace.js";
 import { requestBotApproval } from "./bot-approval.js";
 import { resolvePreset } from "../core/models.js";
 import type { WizardDef, WizardStep } from "./wizard.js";
@@ -38,7 +40,82 @@ export const PRESETS: Record<string, { provider: string; baseUrl?: string; model
   },
 };
 
+// ─── SOUL Templates ─────────────────────────────────────────────────
+
+export const SOUL_TEMPLATES: Record<string, { label: string; soul: string; model?: string }> = {
+  coding: {
+    label: "💻 Coding Assistant",
+    model: "claude-sonnet-4-20250514",
+    soul: `# Coding Assistant
+
+You're a senior software engineer. Write clean, efficient code. Explain decisions briefly. Test before shipping.
+
+## Approach
+- Read the codebase before changing it
+- Prefer simple solutions over clever ones
+- Fix root causes, not symptoms
+- When debugging, form a hypothesis first
+
+## Style
+- Direct and technical. Skip pleasantries.
+- Show code, not descriptions of code
+- Suggest alternatives when the requested approach has trade-offs
+`,
+  },
+  research: {
+    label: "🔍 Research",
+    model: "gpt-4o",
+    soul: `# Research Assistant
+
+You're a meticulous researcher. Find information, verify claims, synthesize insights.
+
+## Approach
+- Search multiple sources before concluding
+- Distinguish between facts and opinions
+- Cite where you found information
+- Flag when information might be outdated
+
+## Style
+- Thorough but organized. Use headers and bullet points.
+- Start with the bottom line, then supporting details
+- Be honest about confidence levels
+`,
+  },
+  writing: {
+    label: "✍️ Writing",
+    soul: `# Writing Assistant
+
+You're a skilled writer and editor. Help draft, revise, and polish text.
+
+## Approach
+- Match the user's voice and tone
+- Focus on clarity and impact
+- Cut unnecessary words ruthlessly
+- Suggest structure improvements
+
+## Style
+- Warm but concise
+- Show, don't tell
+- Give specific feedback, not vague praise
+`,
+  },
+  general: {
+    label: "🤖 General",
+    soul: "",
+  },
+  custom: {
+    label: "✏️ Custom",
+    soul: "",
+  },
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────
+
+/** Extract a bot token from text (handles forwarded BotFather messages or raw token) */
+function extractBotToken(input: string): string | null {
+  const match = input.match(/\d{8,}:[A-Za-z0-9_-]{30,}/);
+  return match ? match[0] : null;
+}
 
 /** Validate a Telegram bot token by calling getMe */
 export async function validateBotToken(token: string): Promise<{ ok: boolean; username?: string; name?: string; error?: string }> {
@@ -150,6 +227,7 @@ function buildModelSteps(getConfig: () => Config): WizardStep[] {
       id: "model",
       prompt: `Model (current: ${config.model}):`,
       columns: 1,
+      skip: (data) => data.useRecommended === "__recommended__",
       options: [
         { label: `✓ ${config.model} (default)`, value: "__default__" },
         ...preset.models
@@ -179,6 +257,7 @@ function buildModelSteps(getConfig: () => Config): WizardStep[] {
       id: "modelProvider",
       prompt: `Model (current: ${config.model}):\n\nPick a provider or type a custom model name:`,
       columns: 2,
+      skip: (data) => data.useRecommended === "__recommended__",
       options: [
         { label: `✓ Keep default`, value: "__default__" },
         ...providerNames.map(p => ({
@@ -194,7 +273,7 @@ function buildModelSteps(getConfig: () => Config): WizardStep[] {
         return `${p} models:`;
       },
       columns: 1,
-      skip: (data) => data.modelProvider === "__default__",
+      skip: (data) => data.modelProvider === "__default__" || data.useRecommended === "__recommended__",
       options: (data) => {
         const selected = data.modelProvider;
         const models = groups.get(selected) ?? [];
@@ -220,22 +299,40 @@ export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: (
         validate: (value) => value ? null : "Name cannot be empty.",
       },
       {
-        id: "description",
-        prompt: "Agent personality (SOUL.md):",
-        options: [
-          { label: "Use default", value: "__default__" },
-          { label: "Customize", value: "__custom__" },
-        ],
+        id: "template",
+        prompt: "Agent personality template:",
+        columns: 1,
+        options: Object.entries(SOUL_TEMPLATES).map(([key, t]) => ({
+          label: t.label,
+          value: key,
+        })),
       },
       {
         id: "descriptionCustom",
         prompt: "What does this agent do? (one line, goes into SOUL.md):",
-        skip: (data) => data.description !== "__custom__",
+        skip: (data) => data.template !== "custom",
+      },
+      {
+        id: "useRecommended",
+        prompt: (data) => {
+          const t = SOUL_TEMPLATES[data.template];
+          return `Recommended model: ${t?.model}\n\nUse this model?`;
+        },
+        skip: (data) => !SOUL_TEMPLATES[data.template]?.model,
+        options: [
+          { label: "✓ Use recommended", value: "__recommended__" },
+          { label: "Choose different", value: "__choose__" },
+        ],
       },
       ...buildModelSteps(getConfig),
       {
         id: "token",
-        prompt: "Connect a Telegram bot?\n\nPaste a bot token from @BotFather, or skip:",
+        prompt: "Connect a Telegram bot?\n\nPaste a token or forward the BotFather message, or skip:",
+        transform: (input) => extractBotToken(input) ?? input,
+        validate: (input) => {
+          if (input === "__skip__") return null;
+          return /^\d{8,}:[A-Za-z0-9_-]{30,}$/.test(input) ? null : "No valid bot token found. Paste the token or forward the full BotFather message.";
+        },
         options: [
           { label: "Skip — no Telegram bot", value: "__skip__" },
         ],
@@ -246,7 +343,12 @@ export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: (
 
       const existingIds = Object.keys(config.agents);
       const id = nameToId(data.name, existingIds);
-      const model = (data.modelProvider === "__default__" || data.model === "__default__") ? undefined : data.model;
+      let model: string | undefined;
+      if (data.useRecommended === "__recommended__") {
+        model = SOUL_TEMPLATES[data.template]?.model;
+      } else {
+        model = (data.modelProvider === "__default__" || data.model === "__default__") ? undefined : data.model;
+      }
 
       let tokenInfo = "";
       if (data.token && data.token !== "__skip__") {
@@ -257,8 +359,15 @@ export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: (
         tokenInfo = `\nTelegram: @${result.username}`;
       }
 
-      const description = data.description === "__default__" ? undefined : data.descriptionCustom;
+      const description = data.template === "custom" ? data.descriptionCustom : undefined;
       seedAgentWorkspace(id, data.name, description);
+
+      // Apply SOUL template if selected
+      const tmpl = SOUL_TEMPLATES[data.template];
+      if (tmpl?.soul) {
+        const soulPath = path.join(agentMemoryDir(id), "SOUL.md");
+        fs.writeFileSync(soulPath, tmpl.soul);
+      }
 
       const agentConfig: Record<string, unknown> = { name: data.name };
       if (model) agentConfig.model = model;
@@ -459,6 +568,106 @@ export function createMcpAddWizard(getConfig: () => Config, agentId?: string): W
       const scope = agentId && config.agents[agentId] ? config.agents[agentId].name : "global";
       const detail = data.url ?? data.command;
       return `MCP server added! (${scope})\n\nName: ${name}\nType: ${data.transport}\n${detail}`;
+    },
+  };
+}
+
+// ─── Clone Agent Wizard ─────────────────────────────────────────────
+
+export function createCloneWizard(
+  sourceId: string,
+  getConfig: () => Config,
+  getSystemPrompt: () => string,
+): WizardDef {
+  return {
+    id: "clone-agent",
+    steps: [
+      {
+        id: "name",
+        prompt: `Clone "${sourceId}" — new agent name:`,
+        validate: (value) => value ? null : "Name cannot be empty.",
+      },
+      {
+        id: "token",
+        prompt: "Connect a Telegram bot?\n\nPaste a token or forward the BotFather message, or skip:",
+        transform: (input) => extractBotToken(input) ?? input,
+        validate: (input) => {
+          if (input === "__skip__") return null;
+          return /^\d{8,}:[A-Za-z0-9_-]{30,}$/.test(input) ? null : "No valid bot token found. Paste the token or forward the full BotFather message.";
+        },
+        options: [
+          { label: "Skip — no Telegram bot", value: "__skip__" },
+        ],
+      },
+    ],
+    onComplete: async (data, chatId, bot) => {
+      const config = getConfig();
+      const existingIds = Object.keys(config.agents);
+      const newId = nameToId(data.name, existingIds);
+
+      // Clone workspace files
+      cloneAgentWorkspace(sourceId, newId, data.name);
+
+      // Clone config (model, thinking, effort, maxTurns, MCP)
+      const source = config.agents[sourceId];
+      const agentConfig: Record<string, unknown> = { name: data.name };
+      if (source?.model) agentConfig.model = source.model;
+      if (source?.thinking) agentConfig.thinking = source.thinking;
+      if (source?.effort) agentConfig.effort = source.effort;
+      if (source?.maxTurns) agentConfig.maxTurns = source.maxTurns;
+      if (source?.mcp?.servers && Object.keys(source.mcp.servers).length > 0) {
+        agentConfig.mcp = { servers: { ...source.mcp.servers } };
+      }
+
+      let tokenInfo = "";
+      if (data.token && data.token !== "__skip__") {
+        const result = await validateBotToken(data.token);
+        if (!result.ok) {
+          return `Token validation failed: ${result.error}\n\nTry again.`;
+        }
+        agentConfig.telegram = {
+          botToken: data.token,
+          allowedUsers: config.agents.admin?.telegram?.allowedUsers ?? [],
+        };
+        tokenInfo = `\nTelegram: @${result.username}`;
+
+        requestBotApproval({
+          agentId: newId,
+          agentName: data.name,
+          botToken: data.token,
+          botUsername: result.username,
+          model: (source?.model ?? config.model),
+          requestedAt: Date.now(),
+        });
+
+        const keyboard = new InlineKeyboard()
+          .text("Approve", `botapproval:approve:${newId}`)
+          .text("Deny", `botapproval:deny:${newId}`);
+
+        try {
+          await bot.api.sendMessage(chatId, [
+            `Cloned agent wants to connect\n`,
+            `Name: ${data.name}`,
+            `ID: ${newId}`,
+            result.username ? `Bot: @${result.username}` : null,
+          ].filter(Boolean).join("\n"), { reply_markup: keyboard });
+        } catch { /* best effort */ }
+
+        tokenInfo += "\nBot pending approval.";
+      }
+
+      const agents = { ...config.agents, [newId]: agentConfig };
+      saveConfig({ agents });
+
+      return [
+        `Agent cloned!\n`,
+        `Source: ${sourceId}`,
+        `Name: ${data.name}`,
+        `ID: ${newId}`,
+        `Model: ${source?.model ?? config.model}`,
+        tokenInfo,
+        `\nWorkspace files copied.`,
+      ].filter(Boolean).join("\n");
     },
   };
 }

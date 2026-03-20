@@ -14,9 +14,9 @@ describe("classifyError", () => {
     ["rate limit exceeded", "rate_limit"],
     ["quota exceeded", "rate_limit"],
     ["resource exhausted", "rate_limit"],
-    ["500 Internal Server Error", "rate_limit"], // treated as retryable
-    ["502 Bad Gateway", "rate_limit"],
-    ["503 Service Unavailable", "rate_limit"],
+    ["500 Internal Server Error", "server_error"],
+    ["502 Bad Gateway", "server_error"],
+    ["503 Service Unavailable", "server_error"],
     ["context length exceeded", "overflow"],
     ["prompt is too long", "overflow"],
     ["request too large", "overflow"],

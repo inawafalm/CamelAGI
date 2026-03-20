@@ -6,12 +6,13 @@ import path from "node:path";
 import { saveConfig, loadConfig, type Config } from "../core/config.js";
 import { agentMemoryDir } from "../workspace.js";
 import { listSessions, deleteSession, loadMessages } from "../session.js";
-import { getSessionUsage, formatUsageSummary } from "../usage.js";
+import { getSessionUsage, formatUsageSummary, formatTokens, aggregateAgentUsage, formatCost } from "../usage.js";
 import { CHARS_PER_TOKEN } from "../core/constants.js";
 import { getActiveBotIds, startBot, stopBot } from "../telegram.js";
 import type { BotState } from "./types.js";
 import { startWizard, advanceWizard, cancelWizard, hasActiveWizard } from "./wizard.js";
-import { createSetupWizard, createNewAgentWizard, createMcpAddWizard } from "./wizards.js";
+import { createSetupWizard, createNewAgentWizard, createMcpAddWizard, createCloneWizard } from "./wizards.js";
+import { resolvePreset } from "../core/models.js";
 import { createVoiceWizard, createVoiceResetWizard } from "./voice-wizard.js";
 import type { WizardDef } from "./wizard.js";
 import { formatAge } from "./helpers.js";
@@ -60,6 +61,43 @@ async function showSoul(chatId: number, targetId: string, edit: boolean, bot: Bo
   await bot.api.sendMessage(chatId, `SOUL.md (${targetId}):\n\n${preview}`, { reply_markup: kb });
 }
 
+async function showAgentConfig(chatId: number, agentId: string, config: import("../core/config.js").Config, bot: import("grammy").Bot): Promise<void> {
+  const agent = config.agents[agentId];
+  if (!agent) return;
+
+  const model = agent.model ?? config.model;
+  const thinking = agent.thinking ?? config.thinking;
+  const effort = agent.effort ?? config.effort;
+  const maxTurns = agent.maxTurns ?? config.maxTurns;
+  const mcpCount = agent.mcp ? Object.keys(agent.mcp.servers).length : 0;
+  const runningBots = getActiveBotIds();
+  const running = runningBots.includes(agentId);
+  const statusIcon = running ? "🟢" : agent.telegram?.botToken ? "🔴" : "⚪";
+
+  const briefMode = agent.telegram?.briefMode ?? true;
+
+  const lines = [
+    `${statusIcon} ${agent.name} (${agentId})\n`,
+    `Model: ${model}`,
+    `Thinking: ${thinking}`,
+    `Effort: ${effort}`,
+    `Max Turns: ${maxTurns}`,
+    `Brief: ${briefMode ? "on" : "off"}`,
+    mcpCount > 0 ? `MCP: ${mcpCount} server${mcpCount > 1 ? "s" : ""}` : `MCP: none`,
+  ];
+
+  const kb = new InlineKeyboard()
+    .text("Model", `ae:model:${agentId}`)
+    .text("Thinking", `ae:think:${agentId}`)
+    .text("Effort", `ae:effort:${agentId}`)
+    .row()
+    .text("Max Turns", `ae:turns:${agentId}`)
+    .text(`Brief: ${briefMode ? "on" : "off"}`, `ae:brief:${agentId}`)
+    .text("Clone", `ae:clone:${agentId}`);
+
+  await bot.api.sendMessage(chatId, lines.join("\n"), { reply_markup: kb });
+}
+
 // ─── Setup Admin Bot ─────────────────────────────────────────────────
 
 export async function setupAdminBot(
@@ -80,6 +118,8 @@ export async function setupAdminBot(
     { command: "soul", description: "View/edit agent SOUL.md" },
     { command: "mcp", description: "Manage MCP servers" },
     { command: "config", description: "View/update configuration" },
+    { command: "agent", description: "View/edit agent config" },
+    { command: "usage", description: "Per-agent usage & cost summary" },
     { command: "sessions", description: "Manage sessions" },
     { command: "status", description: "System health and stats" },
     { command: "restart", description: "Restart agent bots" },
@@ -330,6 +370,7 @@ export async function setupAdminBot(
       "Agents:",
       "  /newagent — create a new agent",
       "  /agents — list all agents",
+      "  /agent <id> — view/edit agent config",
       "  /deleteagent — pick & delete an agent",
       "  /soul — view/edit agent personality",
       "",
@@ -341,6 +382,7 @@ export async function setupAdminBot(
       "",
       "Sessions & Status:",
       "  /sessions — list sessions",
+      "  /usage — per-agent usage & costs",
       "  /status — system health",
       "  /restart — restart all bots",
       "",
@@ -405,6 +447,8 @@ export async function setupAdminBot(
         hasButtons = true;
       }
     }
+
+    lines.push("Use /agent <id> to view/edit config");
 
     // Management buttons
     if (hasButtons) kb.row();
@@ -762,6 +806,245 @@ export async function setupAdminBot(
     } else {
       await startWizard(ctx.chat!.id, createVoiceResetWizard(), b);
     }
+  });
+
+  // ─── Agent config editing ───────────────────────────────────────────
+
+  b.command("agent", async (ctx) => {
+    const targetId = (ctx.match ?? "").trim();
+    const config = getConfig();
+
+    if (!targetId) {
+      const entries = Object.entries(config.agents);
+      if (entries.length === 0) {
+        await ctx.reply("No agents. Use /newagent first.");
+        return;
+      }
+      const kb = new InlineKeyboard();
+      for (const [id, a] of entries) {
+        kb.text(a.name, `ae:show:${id}`).row();
+      }
+      await ctx.reply("Which agent to view/edit?", { reply_markup: kb });
+      return;
+    }
+
+    if (!config.agents[targetId]) {
+      await ctx.reply(`Agent "${targetId}" not found.`);
+      return;
+    }
+
+    await showAgentConfig(ctx.chat.id, targetId, config, b);
+  });
+
+  b.callbackQuery(/^ae:show:(.+)$/, async (ctx) => {
+    const agentIdParam = ctx.callbackQuery.data.match(/^ae:show:(.+)$/)?.[1];
+    if (!agentIdParam) return;
+    await ctx.answerCallbackQuery();
+    const config = getConfig();
+    await showAgentConfig(ctx.chat!.id, agentIdParam, config, b);
+  });
+
+  b.callbackQuery(/^ae:think:(.+)$/, async (ctx) => {
+    const agentIdParam = ctx.callbackQuery.data.match(/^ae:think:(.+)$/)?.[1];
+    if (!agentIdParam) return;
+    await ctx.answerCallbackQuery();
+    const config = getConfig();
+    const current = config.agents[agentIdParam]?.thinking ?? config.thinking;
+    const levels = ["off", "low", "medium", "high"];
+    const kb = new InlineKeyboard();
+    for (const l of levels) {
+      kb.text(l === current ? `✓ ${l}` : l, `as:${agentIdParam}:think:${l}`);
+    }
+    await ctx.reply(`Set thinking for ${agentIdParam}:`, { reply_markup: kb });
+  });
+
+  b.callbackQuery(/^ae:effort:(.+)$/, async (ctx) => {
+    const agentIdParam = ctx.callbackQuery.data.match(/^ae:effort:(.+)$/)?.[1];
+    if (!agentIdParam) return;
+    await ctx.answerCallbackQuery();
+    const config = getConfig();
+    const current = config.agents[agentIdParam]?.effort ?? config.effort;
+    const levels = ["low", "medium", "high", "max"];
+    const kb = new InlineKeyboard();
+    for (const l of levels) {
+      kb.text(l === current ? `✓ ${l}` : l, `as:${agentIdParam}:effort:${l}`);
+    }
+    await ctx.reply(`Set effort for ${agentIdParam}:`, { reply_markup: kb });
+  });
+
+  b.callbackQuery(/^ae:turns:(.+)$/, async (ctx) => {
+    const agentIdParam = ctx.callbackQuery.data.match(/^ae:turns:(.+)$/)?.[1];
+    if (!agentIdParam) return;
+    await ctx.answerCallbackQuery();
+    const config = getConfig();
+    const current = config.agents[agentIdParam]?.maxTurns ?? config.maxTurns;
+    const options = [10, 25, 50, 100];
+    const kb = new InlineKeyboard();
+    for (const n of options) {
+      kb.text(n === current ? `✓ ${n}` : String(n), `as:${agentIdParam}:turns:${n}`);
+    }
+    await ctx.reply(`Set max turns for ${agentIdParam}:`, { reply_markup: kb });
+  });
+
+  b.callbackQuery(/^ae:model:(.+)$/, async (ctx) => {
+    const agentIdParam = ctx.callbackQuery.data.match(/^ae:model:(.+)$/)?.[1];
+    if (!agentIdParam) return;
+    await ctx.answerCallbackQuery();
+    const config = getConfig();
+    const current = config.agents[agentIdParam]?.model ?? config.model;
+    const preset = resolvePreset(config.provider, config.baseUrl);
+    const models = preset.models.slice(0, 6);
+    const kb = new InlineKeyboard();
+    for (const m of models) {
+      const slash = m.indexOf("/");
+      const label = slash > 0 ? m.slice(slash + 1) : m;
+      const check = m === current ? "✓ " : "";
+      kb.text(`${check}${label}`, `as:${agentIdParam}:model:${m}`).row();
+    }
+    kb.text("✏️ Type custom", `ae:modelcustom:${agentIdParam}`);
+    await ctx.reply(`Set model for ${agentIdParam}:`, { reply_markup: kb });
+  });
+
+  b.callbackQuery(/^ae:modelcustom:(.+)$/, async (ctx) => {
+    const agentIdParam = ctx.callbackQuery.data.match(/^ae:modelcustom:(.+)$/)?.[1];
+    if (!agentIdParam) return;
+    await ctx.answerCallbackQuery();
+    await startWizard(ctx.chat!.id, {
+      id: "agent-model-edit",
+      steps: [{
+        id: "model",
+        prompt: `Type the model name for "${agentIdParam}":`,
+      }],
+      onComplete: async (data) => {
+        const cfg = getConfig();
+        const agents = { ...cfg.agents };
+        agents[agentIdParam] = { ...agents[agentIdParam], model: data.model };
+        saveConfig({ agents });
+        return `Model set to: ${data.model}`;
+      },
+    }, b);
+  });
+
+  b.callbackQuery(/^ae:brief:(.+)$/, async (ctx) => {
+    const agentIdParam = ctx.callbackQuery.data.match(/^ae:brief:(.+)$/)?.[1];
+    if (!agentIdParam) return;
+    await ctx.answerCallbackQuery();
+
+    const config = getConfig();
+    const agent = config.agents[agentIdParam];
+    if (!agent?.telegram) {
+      await ctx.reply("Agent has no Telegram config.");
+      return;
+    }
+
+    const current = agent.telegram.briefMode ?? true;
+    const next = !current;
+    const agents = { ...config.agents };
+    agents[agentIdParam] = {
+      ...agents[agentIdParam],
+      telegram: { ...agents[agentIdParam].telegram!, briefMode: next },
+    } as typeof agents[string];
+    saveConfig({ agents });
+
+    try {
+      await ctx.editMessageText(`Brief mode: ${next ? "on" : "off"} ✓`);
+    } catch {
+      await ctx.reply(`Brief mode: ${next ? "on" : "off"} ✓`);
+    }
+  });
+
+  b.callbackQuery(/^ae:mcp:(.+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await ctx.reply("Use /mcp to manage MCP servers.");
+  });
+
+  b.callbackQuery(/^ae:clone:(.+)$/, async (ctx) => {
+    const agentIdParam = ctx.callbackQuery.data.match(/^ae:clone:(.+)$/)?.[1];
+    if (!agentIdParam) return;
+    await ctx.answerCallbackQuery();
+    await startWizard(ctx.chat!.id, createCloneWizard(agentIdParam, getConfig, getSystemPrompt), b);
+  });
+
+  b.callbackQuery(/^as:(.+?):(.+?):(.+)$/, async (ctx) => {
+    const match = ctx.callbackQuery.data.match(/^as:(.+?):(.+?):(.+)$/);
+    if (!match) return;
+    const [, agentIdParam, field, value] = match;
+    await ctx.answerCallbackQuery();
+
+    const config = getConfig();
+    if (!config.agents[agentIdParam]) {
+      await ctx.reply("Agent not found.");
+      return;
+    }
+
+    const agents = { ...config.agents };
+    const agent = { ...agents[agentIdParam] };
+
+    const fieldLabels: Record<string, string> = {
+      think: "Thinking", effort: "Effort", turns: "Max Turns", model: "Model",
+    };
+
+    if (field === "think") {
+      (agent as Record<string, unknown>).thinking = value;
+    } else if (field === "effort") {
+      (agent as Record<string, unknown>).effort = value;
+    } else if (field === "turns") {
+      (agent as Record<string, unknown>).maxTurns = parseInt(value, 10);
+    } else if (field === "model") {
+      (agent as Record<string, unknown>).model = value;
+    }
+
+    agents[agentIdParam] = agent;
+    saveConfig({ agents });
+
+    const label = fieldLabels[field] ?? field;
+    try {
+      await ctx.editMessageText(`${label} set to: ${value} ✓`);
+    } catch {
+      await ctx.reply(`${label} set to: ${value} ✓`);
+    }
+  });
+
+  // ─── Usage & cost summary ────────────────────────────────────────
+
+  b.command("usage", async (ctx) => {
+    const config = getConfig();
+    const entries = Object.entries(config.agents).filter(([, a]) => !a.admin);
+    if (entries.length === 0) {
+      await ctx.reply("No agents configured.");
+      return;
+    }
+
+    const lines = ["Usage Summary\n"];
+    let totalCost = 0;
+    let hasData = false;
+
+    for (const [id, a] of entries) {
+      const model = a.model ?? config.model;
+      const summary = aggregateAgentUsage(id, a.name, model);
+      const total = summary.totalInput + summary.totalOutput;
+      if (total === 0 && summary.calls === 0) continue;
+      hasData = true;
+
+      lines.push(`${a.name} (${model})`);
+      lines.push(`  ${formatTokens(summary.totalInput)} in | ${formatTokens(summary.totalOutput)} out | ${summary.calls} calls`);
+      if (summary.estimatedCost !== undefined) {
+        lines.push(`  Cost: ~${formatCost(summary.estimatedCost)}`);
+        totalCost += summary.estimatedCost;
+      }
+      lines.push("");
+    }
+
+    if (!hasData) {
+      await ctx.reply("No usage data yet.");
+      return;
+    }
+
+    if (totalCost > 0) {
+      lines.push(`Total estimated cost: ~${formatCost(totalCost)}`);
+    }
+
+    await ctx.reply(lines.join("\n"));
   });
 
   // ─── Message handler: wizard intercept ─────────────────────────────

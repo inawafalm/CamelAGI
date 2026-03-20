@@ -57,6 +57,7 @@ export async function startTelegram(
         runtimeModels: new Map(),
         runtimeThinking: new Map(),
         runtimeEffort: new Map(),
+        runtimeBriefMode: new Map(),
       });
       startPolling(bot, id);
     } else {
@@ -108,6 +109,7 @@ export async function startBot(
         runtimeModels: new Map(),
         runtimeThinking: new Map(),
         runtimeEffort: new Map(),
+        runtimeBriefMode: new Map(),
       });
       startPolling(bot, agentId);
     } else {

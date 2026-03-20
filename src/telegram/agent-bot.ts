@@ -22,6 +22,7 @@ import { isGroupChat, shouldRespondInGroup, stripMention, sendChunked, startPoll
 import { hasPendingRequest, createPairingRequest } from "./pairing.js";
 import { notifyAdminOfPairing } from "./pairing-notify.js";
 import { listSkillNames } from "../extensions/skills.js";
+import { classifyError } from "../runtime/retry.js";
 import { log as slog } from "../core/log.js";
 import { transcribe } from "./transcribe.js";
 
@@ -40,6 +41,7 @@ export async function setupAgentBot(
     runtimeModels: new Map(),
     runtimeThinking: new Map(),
     runtimeEffort: new Map(),
+    runtimeBriefMode: new Map(),
   };
   activeBots.set(agentId, state);
 
@@ -48,7 +50,31 @@ export async function setupAgentBot(
     registerForwardBot(b);
   }
 
-  const { botInfo, runtimeModels, runtimeThinking, runtimeEffort } = state;
+  const { botInfo, runtimeModels, runtimeThinking, runtimeEffort, runtimeBriefMode } = state;
+
+  // Error alert throttling — max 1 per agent per 5 minutes
+  const errorAlertTimes = new Map<string, number>();
+  const ALERT_COOLDOWN_MS = 5 * 60 * 1000;
+
+  async function alertAdmin(message: string): Promise<void> {
+    const lastAlert = errorAlertTimes.get(agentId) ?? 0;
+    if (Date.now() - lastAlert < ALERT_COOLDOWN_MS) return;
+    errorAlertTimes.set(agentId, Date.now());
+
+    const config = getConfig();
+    const adminEntry = Object.entries(config.agents).find(([, a]) => a.admin);
+    if (!adminEntry) return;
+    const [adminId] = adminEntry;
+    const adminState = activeBots.get(adminId);
+    if (!adminState) return;
+
+    const adminUsers = adminEntry[1].telegram?.allowedUsers ?? [];
+    for (const userId of adminUsers) {
+      try {
+        await adminState.bot.api.sendMessage(userId, message);
+      } catch { /* best effort */ }
+    }
+  }
 
   const sid = (chatId: number) =>
     agentId === "telegram" ? `telegram-${chatId}` : `${agentId}-${chatId}`;
@@ -58,6 +84,7 @@ export async function setupAgentBot(
       model: runtimeModels.get(chatId),
       thinking: runtimeThinking.get(chatId),
       effort: runtimeEffort.get(chatId),
+      briefMode: runtimeBriefMode.get(chatId),
     });
 
   // Register commands (only commands this bot actually handles)
@@ -73,6 +100,7 @@ export async function setupAgentBot(
     { command: "export", description: "Export session as markdown file" },
     { command: "session", description: "Show or switch session" },
     { command: "mcp", description: "Manage MCP tool servers" },
+    { command: "brief", description: "Toggle brief response mode" },
     { command: "compact", description: "Force compaction of chat history" },
     { command: "voice", description: "Voice transcription info" },
   ]).catch(() => {});
@@ -145,6 +173,7 @@ export async function setupAgentBot(
       "/think <level> — Set thinking (off|low|medium|high)",
       "/effort <level> — Set effort (low|medium|high|max)",
       "/usage — Token usage for this session",
+      "/brief — Toggle brief response mode",
       "/skills — List active skills",
       "/mcp — Manage MCP tool servers",
       "/export — Export session as markdown file",
@@ -155,6 +184,7 @@ export async function setupAgentBot(
       `Thinking: ${agent.thinking}`,
       `Effort: ${agent.effort}`,
       `Max turns: ${agent.maxTurns}`,
+      `Brief mode: ${agent.briefMode ? "on" : "off"}`,
     ];
     await ctx.reply(lines.join("\n"));
   });
@@ -164,6 +194,7 @@ export async function setupAgentBot(
     runtimeModels.delete(ctx.chat.id);
     runtimeThinking.delete(ctx.chat.id);
     runtimeEffort.delete(ctx.chat.id);
+    runtimeBriefMode.delete(ctx.chat.id);
     await ctx.reply("Session cleared.");
   });
 
@@ -251,6 +282,14 @@ export async function setupAgentBot(
     runtimeEffort.set(ctx.chat!.id, level);
     try { await ctx.editMessageText(`Effort: ${level} ✓`); } catch {}
     await ctx.answerCallbackQuery();
+  });
+
+  b.command("brief", async (ctx) => {
+    const agent = getAgent(ctx.chat.id);
+    const current = runtimeBriefMode.get(ctx.chat.id) ?? agent.briefMode;
+    const next = !current;
+    runtimeBriefMode.set(ctx.chat.id, next);
+    await ctx.reply(`Brief mode: ${next ? "on — short replies" : "off — detailed replies"}`);
   });
 
   b.command("usage", async (ctx) => {
@@ -508,6 +547,14 @@ export async function setupAgentBot(
         agentSystemPrompt: agent.systemPrompt,
         thinking: agent.thinking,
         effort: agent.effort,
+        onRetry: async (attempt, kind) => {
+          await alertAdmin(`⚠️ ${agent.name}: ${kind} (attempt ${attempt + 1}/${config.retry.maxRetries})`);
+        },
+        onError: async (err, kind) => {
+          const isFatal = kind === "auth" || kind === "billing";
+          const icon = isFatal ? "🚨" : "⚠️";
+          await alertAdmin(`${icon} ${agent.name}: ${kind} — ${err.message.slice(0, 200)}`);
+        },
         onEvent: async (event: AgentEvent) => {
           if (event.type === "stream_text") {
             pendingText += event.text;

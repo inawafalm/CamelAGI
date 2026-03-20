@@ -9,6 +9,7 @@ export interface BotState {
   runtimeModels: Map<number, string>;
   runtimeThinking: Map<number, Config["thinking"]>;
   runtimeEffort: Map<number, Config["effort"]>;
+  runtimeBriefMode: Map<number, boolean>;
 }
 
 export interface ResolvedAgent {
@@ -21,4 +22,5 @@ export interface ResolvedAgent {
   maxTurns: number;
   allowedUsers: number[];
   mentionOnly: boolean;
+  briefMode: boolean;
 }

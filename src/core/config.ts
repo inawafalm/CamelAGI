@@ -158,6 +158,7 @@ const schema = z.object({
     telegram: z.object({
       botToken: z.string(),
       allowedUsers: z.array(z.number()).default([]),
+      briefMode: z.boolean().default(true),
       groups: z.object({
         mentionOnly: z.boolean().default(true),
       }).default(() => ({ mentionOnly: true })),
