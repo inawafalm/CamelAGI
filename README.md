@@ -19,6 +19,13 @@
 CamelAGI is a self-hosted AI assistant that runs on your server and puts you in full control from your phone. One command to install, then manage everything — create agents, switch models, approve tools, monitor usage — all from Telegram, Discord, or your terminal.
 
 <p align="center">
+  <img src="assets/Claude_Logo.png" alt="Claude Logo" width="200" />
+</p>
+<p align="center">
+Powered by <a href="https://platform.claude.com/docs/en/agent-sdk/overview">Claude Agent SDK</a> — the same runtime behind Claude Code.
+</p>
+
+<p align="center">
   <a href="https://camelagi.net"><strong>camelagi.net</strong></a>
 </p>
 
@@ -45,11 +52,6 @@ CamelAGI is a self-hosted AI assistant that runs on your server and puts you in 
 **Install** (no Node.js required)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/inawafalm/CamelAGI/main/install.sh | bash
-```
-
-**Or via npm**
-```bash
-npm install -g camelagi
 ```
 
 **Setup & Run**
@@ -350,7 +352,6 @@ Feature docs cover: [agent system](featuresDocs/agent-system.md), [memory](featu
 |---|---|---|
 | 📡 | **More Channels** | WhatsApp, Slack — connect your AI agents to every platform your team already uses |
 | 🧩 | **ClawHub Skills** | Browse and install community skills from [clawhub.io](https://clawhub.io) — one command to add new capabilities |
-| 🖥️ | **Native Desktop Apps** | Standalone macOS and Windows apps — no terminal required |
 | 🏢 | **Business Ready** | Deploy for your business — finance, operations, customer support. AI agents that understand your workflows |
 
 <br>
