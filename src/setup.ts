@@ -195,13 +195,22 @@ async function runTelegramSetup(): Promise<void> {
   });
   seedAgentWorkspace("admin", "Admin", "CamelAGI admin bot \u2014 manages your AI agents from Telegram");
 
-  // Start server for pairing
+  // Start just the admin bot for pairing (no full server needed)
   const s2 = p.spinner();
-  s2.start("Starting server...");
-  const { startServer } = await import("./serve.js");
-  startServer({ cron: false, boot: false }).catch(() => {});
-  await new Promise((r) => setTimeout(r, 2500));
-  s2.stop("Server running");
+  s2.start("Starting admin bot...");
+  try {
+    const { setupAdminBot } = await import("./telegram/admin-bot.js");
+    const { startPolling } = await import("./telegram/helpers.js");
+    const config = loadConfig();
+    const adminBot = await setupAdminBot("admin", botToken!, () => config, () => "", new Map());
+    startPolling(adminBot, "admin");
+    await new Promise((r) => setTimeout(r, 1500));
+    s2.stop("Admin bot running");
+  } catch (err) {
+    s2.stop("Could not start admin bot");
+    p.log.warn(`Pair later: run camel serve, then send a message to @${result.username} in Telegram.`);
+    return;
+  }
 
   // Mute background logs
   const origLog = console.log;
