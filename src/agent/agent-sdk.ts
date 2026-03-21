@@ -168,41 +168,41 @@ export async function runAgentSdk(
   let result = "";
   let sdkSessionId: string | undefined;
 
-  const q = query({
-    prompt: effectivePrompt,
-    options: {
-      model,
-      systemPrompt,
-      allowedTools: [
-        ...BUILTIN_TOOLS,
-        // Allow all tools from each configured MCP server
-        "mcp__camelagi__*",
-        ...Object.keys(opts?.mcpServers ?? {}).map(name => `mcp__${name}__*`),
-      ],
-      ...(disallowedTools && { disallowedTools }),
-      mcpServers: { camelagi: mcpServer, ...(opts?.mcpServers ?? {}) },
-      maxTurns: opts?.maxTurns ?? DEFAULT_MAX_TURNS,
-      pathToClaudeCodeExecutable: sdkCliPath,
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        ...buildSdkEnv(apiKey, opts?.provider, opts?.baseUrl),
-      },
-      thinking,
-      ...(opts?.effort && { effort: opts.effort }),
-      ...(opts?.maxBudgetUsd && { maxBudgetUsd: opts.maxBudgetUsd }),
-      ...(opts?.resumeSessionId && { resume: opts.resumeSessionId }),
-      ...(abortController && { abortController }),
-      includePartialMessages: !!emit,
-      settingSources: ["project"],
-      hooks: {
-        PreToolUse: [{ matcher: ".*", hooks: [preToolHook] }],
-        PostToolUse: [{ matcher: ".*", hooks: [postToolHook] }],
-      },
+  // Build options object step-by-step to isolate any spread errors
+  const mcpServers = { camelagi: mcpServer, ...(opts?.mcpServers ?? {}) };
+  const allowedTools = [
+    ...BUILTIN_TOOLS,
+    "mcp__camelagi__*",
+    ...Object.keys(opts?.mcpServers ?? {}).map(name => `mcp__${name}__*`),
+  ];
+  const envVars = { ...(process.env ?? {}), ...buildSdkEnv(apiKey, opts?.provider, opts?.baseUrl) };
+
+  const queryOptions: Record<string, unknown> = {
+    model,
+    systemPrompt,
+    allowedTools,
+    mcpServers,
+    maxTurns: opts?.maxTurns ?? DEFAULT_MAX_TURNS,
+    pathToClaudeCodeExecutable: sdkCliPath,
+    permissionMode: "bypassPermissions",
+    allowDangerouslySkipPermissions: true,
+    cwd: process.cwd(),
+    env: envVars,
+    thinking,
+    includePartialMessages: !!emit,
+    settingSources: ["project"],
+    hooks: {
+      PreToolUse: [{ matcher: ".*", hooks: [preToolHook] }],
+      PostToolUse: [{ matcher: ".*", hooks: [postToolHook] }],
     },
-  });
+  };
+  if (disallowedTools) queryOptions.disallowedTools = disallowedTools;
+  if (opts?.effort) queryOptions.effort = opts.effort;
+  if (opts?.maxBudgetUsd) queryOptions.maxBudgetUsd = opts.maxBudgetUsd;
+  if (opts?.resumeSessionId) queryOptions.resume = opts.resumeSessionId;
+  if (abortController) queryOptions.abortController = abortController;
+
+  const q = query({ prompt: effectivePrompt, options: queryOptions as any });
 
   // The for-await loop may throw if the SDK subprocess exits unexpectedly
   // (e.g. non-Claude models via OpenRouter). If we already captured a result

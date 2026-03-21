@@ -114,31 +114,32 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
     }
 
     streaming = true;
+
+    // Build agent opts safely — guard every spread
+    const mcpGlobal = config.mcp?.servers ?? {};
+    const mcpAgent = agentId ? config.agents[agentId]?.mcp?.servers ?? {} : {};
+    const mcpMerged = { ...(mcpGlobal ?? {}), ...(mcpAgent ?? {}) };
+    const agentOpts = {
+      maxTurns,
+      timeoutMs: (config.timeoutSeconds ?? 300) * 1000,
+      signal: abortController?.signal,
+      onEvent,
+      toolPolicy: config.tools ?? { allow: [] as string[], deny: [] as string[] },
+      hooksEnabled: config.hooks?.enabled ?? false,
+      sessionId,
+      thinking,
+      effort,
+      provider: config.provider,
+      baseUrl: config.baseUrl,
+      approvals: config.approvals ?? { mode: "off" as const, allowlist: [] as string[], timeoutSeconds: 120, fallback: "deny" as const },
+      ...(Object.keys(mcpMerged).length > 0 ? { mcpServers: mcpMerged } : {}),
+      ...(config.maxBudgetUsd ? { maxBudgetUsd: config.maxBudgetUsd } : {}),
+      ...(resumeSessionId ? { resumeSessionId } : {}),
+      ...(agentId ? { agentId } : {}),
+    };
+
     const result = await withRetry(
-      () => runAgent(config.apiKey!, model, agentSystemPrompt, history, message, {
-        maxTurns,
-        timeoutMs: config.timeoutSeconds * 1000,
-        signal: abortController?.signal,
-        onEvent,
-        toolPolicy: config.tools ?? { allow: [], deny: [] },
-        hooksEnabled: config.hooks?.enabled ?? false,
-        sessionId,
-        thinking,
-        effort,
-        provider: config.provider,
-        baseUrl: config.baseUrl,
-        approvals: config.approvals ?? { mode: "off" as const, allowlist: [], timeoutSeconds: 120, fallback: "deny" as const },
-        ...(() => {
-          // Merge global + per-agent MCP servers (agent overrides global on name collision)
-          const global = config.mcp?.servers ?? {};
-          const agent = agentId ? config.agents[agentId]?.mcp?.servers ?? {} : {};
-          const merged = { ...global, ...agent };
-          return Object.keys(merged).length > 0 ? { mcpServers: merged } : {};
-        })(),
-        ...(config.maxBudgetUsd && { maxBudgetUsd: config.maxBudgetUsd }),
-        ...(resumeSessionId && { resumeSessionId }),
-        ...(agentId && { agentId }),
-      }),
+      () => runAgent(config.apiKey!, model, agentSystemPrompt, history, message, agentOpts),
       {
         maxRetries: config.retry?.maxRetries ?? 3,
         backoffMs: config.retry?.backoffMs ?? 1000,
@@ -147,7 +148,7 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
           : undefined,
         onCompact: async () => {
           const h = loadMessages(sessionId);
-          await compactHistory(client, model, h, { ...config.compaction, enabled: true, agentId });
+          await compactHistory(client, model, h, { ...(config.compaction ?? {}), enabled: true, agentId });
         },
       },
     );
