@@ -103,40 +103,42 @@ ln -sf "$dest" "$BIN_DIR/camel"
 ln -sf "$dest" "$BIN_DIR/camelagi"
 
 # Create symlinks in /usr/local/bin (already in PATH — works immediately)
+NEEDS_RESTART=false
+
 if [ -d "/usr/local/bin" ] && [ -w "/usr/local/bin" ]; then
     ln -sf "$dest" /usr/local/bin/camel
     ln -sf "$dest" /usr/local/bin/camelagi
     echo -e "  ${DIM}Linked to /usr/local/bin/${NC}"
+elif sudo mkdir -p /usr/local/bin 2>/dev/null && \
+     sudo ln -sf "$dest" /usr/local/bin/camel && \
+     sudo ln -sf "$dest" /usr/local/bin/camelagi; then
+    echo -e "  ${DIM}Linked to /usr/local/bin/${NC}"
 else
-    if sudo ln -sf "$dest" /usr/local/bin/camel 2>/dev/null && \
-       sudo ln -sf "$dest" /usr/local/bin/camelagi 2>/dev/null; then
-        echo -e "  ${DIM}Linked to /usr/local/bin/${NC}"
-    else
-        # Fallback: add to shell profile
-        add_to_path() {
-            local profile="$1"
-            local marker="# CamelAGI"
-            if [ -f "$profile" ] && grep -q "$marker" "$profile"; then
-                return 0
-            fi
-            echo "" >> "$profile"
-            echo "export PATH=\"$BIN_DIR:\$PATH\" $marker" >> "$profile"
-            echo -e "  ${DIM}Added to PATH in $profile${NC}"
-        }
+    # Fallback: add to shell profile
+    add_to_path() {
+        local profile="$1"
+        local marker="# CamelAGI"
+        if [ -f "$profile" ] && grep -q "$marker" "$profile"; then
+            return 0
+        fi
+        echo "" >> "$profile"
+        echo "export PATH=\"$BIN_DIR:\$PATH\" $marker" >> "$profile"
+        echo -e "  ${DIM}Added to PATH in $profile${NC}"
+    }
 
-        SHELL_NAME=$(basename "$SHELL")
-        case "$SHELL_NAME" in
-            zsh)  add_to_path "$HOME/.zshrc" ;;
-            bash)
-                if [ -f "$HOME/.bash_profile" ]; then
-                    add_to_path "$HOME/.bash_profile"
-                else
-                    add_to_path "$HOME/.bashrc"
-                fi
-                ;;
-            *)    add_to_path "$HOME/.profile" ;;
-        esac
-    fi
+    SHELL_NAME=$(basename "$SHELL")
+    case "$SHELL_NAME" in
+        zsh)  add_to_path "$HOME/.zshrc" ;;
+        bash)
+            if [ -f "$HOME/.bash_profile" ]; then
+                add_to_path "$HOME/.bash_profile"
+            else
+                add_to_path "$HOME/.bashrc"
+            fi
+            ;;
+        *)    add_to_path "$HOME/.profile" ;;
+    esac
+    NEEDS_RESTART=true
 fi
 
 # Clean old versions (keep last 3)
@@ -147,9 +149,13 @@ if [ -d "$VERSIONS_DIR" ]; then
 fi
 
 echo ""
-echo -e "  ${GREEN}${BOLD}✅ CamelAGI installed! (v${version})${NC}"
+echo -e "  ${GREEN}${BOLD}CamelAGI installed! (v${version})${NC}"
 echo ""
-echo -e "  ${CYAN}Get started:${NC}"
+if [ "$NEEDS_RESTART" = true ]; then
+    echo -e "  ${YELLOW}Restart your terminal, then:${NC}"
+else
+    echo -e "  ${CYAN}Get started:${NC}"
+fi
 echo -e "    ${BOLD}camel setup${NC}         Configure AI provider"
 echo -e "    ${BOLD}camel chat${NC}          Interactive TUI"
 echo -e "    ${BOLD}camel serve${NC}         Start the server"
