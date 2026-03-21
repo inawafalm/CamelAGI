@@ -2,7 +2,6 @@
 // This is a barrel that re-exports types and the main entry point.
 
 import { runHooks } from "./extensions/hooks.js";
-import { runAgentSdk } from "./agent/agent-sdk.js";
 import type { Message } from "./core/types.js";
 
 export type { RunResult, AgentEvent, AgentOpts } from "./agent/types.js";
@@ -19,6 +18,11 @@ export async function runAgent(
   userMessage: string,
   opts?: AgentOpts,
 ): Promise<RunResult> {
+  // Dynamic import: agent SDK has native binaries (ripgrep, tree-sitter)
+  // that can't be bundled into the compiled binary. Loading lazily means
+  // camel serve / setup / admin bot can start without the SDK installed.
+  const { runAgentSdk } = await import("./agent/agent-sdk.js");
+
   if (opts?.hooksEnabled) {
     await runHooks("before_prompt", { sessionId: opts.sessionId, message: userMessage });
   }
