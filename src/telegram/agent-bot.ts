@@ -144,6 +144,8 @@ export async function setupAgentBot(
       userId, agentId, ctx.chat!.id,
       ctx.from?.username, ctx.from?.first_name,
     );
+    const who = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name ?? String(userId);
+    console.log(`\n  \x1b[33mPairing request from ${who} for agent "${agentId}"\x1b[0m\n  \x1b[90mRun: camel pairing\x1b[0m\n`);
     await ctx.reply(
       `Access requested. Waiting for admin approval.\nCode: ${request.code}`,
     );
