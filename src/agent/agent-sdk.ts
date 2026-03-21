@@ -202,7 +202,15 @@ export async function runAgentSdk(
   if (opts?.resumeSessionId) queryOptions.resume = opts.resumeSessionId;
   if (abortController) queryOptions.abortController = abortController;
 
-  const q = query({ prompt: effectivePrompt, options: queryOptions as any });
+  process.stderr.write(`[agent-sdk] pathToClaudeCodeExecutable=${queryOptions.pathToClaudeCodeExecutable}\n`);
+
+  let q: ReturnType<typeof query>;
+  try {
+    q = query({ prompt: effectivePrompt, options: queryOptions as any });
+  } catch (setupErr: unknown) {
+    if (setupErr instanceof Error) process.stderr.write(`\x1b[31m[agent-sdk] query() setup error: ${setupErr.message}\n${setupErr.stack}\x1b[0m\n`);
+    throw setupErr;
+  }
 
   // The for-await loop may throw if the SDK subprocess exits unexpectedly
   // (e.g. non-Claude models via OpenRouter). If we already captured a result
@@ -258,7 +266,10 @@ export async function runAgentSdk(
   } catch (err: unknown) {
     // If the subprocess exited but we already have a response, return it.
     // Otherwise, re-throw so the retry/error handling picks it up.
-    if (!result) throw err;
+    if (!result) {
+      if (err instanceof Error) process.stderr.write(`\x1b[31m[agent-sdk] ${err.message}\n${err.stack}\x1b[0m\n`);
+      throw err;
+    }
   }
 
   const userMsg: Message = { role: "user", content: userMessage };
