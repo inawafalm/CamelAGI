@@ -16,24 +16,181 @@
 
 <br>
 
-CamelAGI is a self-hosted AI assistant that runs on your server and puts you in full control from your phone. One command to set up, then manage everything from Telegram — no terminal needed.
+CamelAGI is a self-hosted AI assistant that runs on your server and puts you in full control from your phone. One command to install, then manage everything — create agents, switch models, approve tools, monitor usage — all from Telegram, Discord, or your terminal.
 
 <p align="center">
-  <a href="https://camelagi.net"><strong>🌐 CamelAGI.net</strong></a>
+  <a href="https://camelagi.net"><strong>camelagi.net</strong></a>
 </p>
 
 ## Contents
 
-- [Built on Claude Agent SDK](#built-on-claude-agent-sdk)
-- [Admin Bot — BotFather for Your AI Server](#admin-bot--botfather-for-your-ai-server)
-- [Claude Agent SDK vs pi-agent](#claude-agent-sdk-vs-pi-agent)
 - [Quick Start](#quick-start)
 - [Features](#features)
-- [Terminal UI — `camel chat`](#terminal-ui--camel-chat)
-- [Developer Experience](#developer-experience)
-- [Roadmap](#roadmap)
+- [Channels](#channels)
+- [Admin Bot Commands](#admin-bot-commands)
+- [Agent Bot Commands](#agent-bot-commands)
+- [CLI Commands](#cli-commands)
+- [Built on Claude Agent SDK](#built-on-claude-agent-sdk)
+- [Claude Agent SDK vs pi-agent](#claude-agent-sdk-vs-pi-agent)
+- [Configuration](#configuration)
+- [Architecture](#architecture)
 - [Documentation](#documentation)
+- [Roadmap](#roadmap)
 - [License](#license)
+
+<br>
+
+## Quick Start
+
+**Install** (no Node.js required)
+```bash
+curl -fsSL https://raw.githubusercontent.com/inawafalm/CamelAGI/main/install.sh | bash
+```
+
+**Or via npm**
+```bash
+npm install -g camelagi
+```
+
+**Setup & Run**
+```bash
+camel bootstrap     # Full setup: admin bot + pairing + API config
+camel serve         # Start the gateway server
+camel chat          # Terminal UI
+```
+
+`bootstrap` walks you through everything: create a Telegram admin bot, pair your account with OTP, pick your AI provider and model. After that, use `/newagent` in Telegram to create your first AI agent.
+
+<br>
+
+## Features
+
+> 3 channels, 18 CLI commands, 10 built-in tools — terminal, Telegram, or Discord.
+
+| | Feature | Description |
+|---|---|---|
+| 🤖 | **Telegram — Admin Bot** | BotFather for AI agents. Create, configure, clone, and manage agents entirely from Telegram — instant commands, zero tokens |
+| 💬 | **Telegram — Agent Bots** | Each agent gets its own Telegram bot. Message it like any chat — it runs tools, reads files, remembers context |
+| 🎮 | **Discord Bots** | Per-agent Discord bots with mention-only mode, role filtering, and channel restrictions |
+| ⌨️ | **Terminal UI** | Full TUI with streaming, slash commands, model switching, session management, and markdown rendering |
+| 🧠 | **Agent Memory** | Isolated two-tier memory per agent — curated MEMORY.md + daily auto-journaling with recency-boosted search |
+| 🎙️ | **Voice Transcription** | Send voice messages to agent bots — transcribed via Groq, OpenAI, or Deepgram and processed as text |
+| 🔌 | **MCP Servers** | Connect external tool servers (stdio, HTTP, SSE). Global or per-agent. Add/remove from Telegram with `/mcp` |
+| 💭 | **Extended Thinking** | Claude reasons step by step before answering. Configure depth: off, low, medium, high |
+| ⏰ | **Cron Jobs** | Schedule AI tasks — daily summaries, monitoring, automations. Intervals, cron expressions, or one-shot timers |
+| 📋 | **Brief Mode** | Toggle short text-message-style replies per chat or per agent — ideal for Telegram |
+| 📊 | **Usage Tracking** | Per-agent token usage and cost breakdown — input, output, cache reads, API calls |
+| 🧬 | **Agent Cloning** | Clone an existing agent with all its config, personality, memory, and MCP servers |
+| 🔐 | **Secure Pairing** | OTP-based user verification. No hardcoded IDs — pairing code + 5-digit OTP from Telegram |
+| 🔁 | **Multi-Provider** | Anthropic, OpenAI, OpenRouter, Ollama — any OpenAI-compatible endpoint. Zero vendor lock-in |
+| 🛡️ | **Tool Approvals** | Human-in-the-loop safety. Approve dangerous operations from Telegram with inline buttons |
+| 🪝 | **Skills & Hooks** | Teach agents skills via Markdown. Run shell/JS hooks before and after tool calls |
+| 🔄 | **Auto Compaction** | Summarizes old turns at 80% capacity. Flushes facts to memory first — nothing is lost |
+| ⚙️ | **Same Engine** | All channels run the same agent loop, same tools, same memory. Switch freely between them |
+
+<br>
+
+## Channels
+
+CamelAGI runs across three channels — all sharing the same agent runtime, tools, and memory.
+
+### Telegram
+
+Two bot types work together:
+
+- **Admin Bot** — A non-AI command bot (zero tokens burned). Create agents, manage config, approve users, monitor sessions, configure MCP servers, set up voice — all from Telegram. Think [@BotFather](https://t.me/BotFather), but for your entire AI infrastructure.
+- **Agent Bots** — Each agent gets its own Telegram bot. Message it like any contact — it runs tools, reads files, remembers context, and supports voice messages.
+
+### Discord
+
+Per-agent Discord bots with:
+- **Mention-only mode** — responds only to @mentions in guild channels, all messages in DMs
+- **Role filtering** — optional allowlist of Discord roles
+- **Channel restrictions** — optional allowlist of channels
+
+### Terminal
+
+`camel chat` gives you a full TUI with streaming, slash commands, keyboard shortcuts, model switching, session management, and one-shot mode (`camel "your question"`).
+
+<br>
+
+## Admin Bot Commands
+
+The Admin Bot is a non-AI Telegram bot for managing your entire CamelAGI server.
+
+| Category | Command | Description |
+|----------|---------|-------------|
+| **Setup** | `/setup` | Configure API provider, key, model |
+| | `/config` | View configuration |
+| | `/config <key> <value>` | Update config |
+| **Agents** | `/newagent` | Create agent wizard |
+| | `/agents` | List all agents |
+| | `/agent` | View/edit agent config |
+| | `/deleteagent` | Delete an agent |
+| | `/soul` | View/edit agent personality |
+| **Tools** | `/mcp` | Manage MCP servers (add/list/remove) |
+| | `/voice` | Configure voice transcription provider |
+| **Monitor** | `/status` | System health & stats |
+| | `/sessions` | List & manage sessions |
+| | `/usage` | Per-agent usage & cost summary |
+| | `/restart` | Restart agent bots |
+| **Security** | `/pairing` | Manage access requests |
+| **Utility** | `/help` | List all commands |
+| | `/cancel` | Cancel active wizard |
+
+<br>
+
+## Agent Bot Commands
+
+Each agent bot supports these commands in Telegram:
+
+| Category | Command | Description |
+|----------|---------|-------------|
+| **Chat** | `/clear` | Clear this chat's history |
+| | `/compact` | Force compaction of chat history |
+| | `/brief` | Toggle brief response mode |
+| | `/export` | Export session as markdown file |
+| **Model** | `/model` | Switch model for this chat |
+| | `/think` | Set thinking level (off/low/medium/high) |
+| | `/effort` | Set effort level (low/medium/high/max) |
+| **Session** | `/session` | Show or switch session |
+| | `/status` | Show model, message count, token usage |
+| | `/usage` | Token usage for this session |
+| **Tools** | `/skills` | List active skills |
+| | `/mcp` | Manage MCP tool servers |
+| | `/voice` | Voice transcription info |
+| **Utility** | `/help` | List commands and current config |
+
+<br>
+
+## CLI Commands
+
+```
+camel <command> [options]
+```
+
+| Category | Command | Description |
+|----------|---------|-------------|
+| **Getting Started** | `bootstrap` | First-time setup wizard |
+| | `setup` | Interactive setup (re-run anytime) |
+| | `chat` | Interactive terminal UI |
+| **Server** | `serve` | Start the gateway server |
+| | `daemon` | Manage launchd daemon (install/uninstall/status) |
+| | `logs` | Tail server request log |
+| | `status` | System health overview |
+| **Agents & Sessions** | `agents` | List configured agents |
+| | `soul` | View/edit agent SOUL.md in $EDITOR |
+| | `sessions` | List saved sessions |
+| | `pairing` | List and approve/deny pending requests |
+| **Configuration** | `config` | View/edit config (get/set/list) |
+| | `cron` | Manage cron jobs (list/add/rm/run) |
+| **Maintenance** | `doctor` | Run health checks |
+| | `reset` | Delete all config, sessions, agents |
+| | `install` | Install to ~/.camelagi/versions/ and add to PATH |
+| | `uninstall` | Remove CamelAGI completely |
+| | `update` | Update to the latest version |
+
+One-shot mode: `camel "your question"` — spins up an ephemeral gateway and answers inline.
 
 <br>
 
@@ -99,113 +256,79 @@ CamelAGI uses **Claude Agent SDK**. OpenClaw uses **pi-agent-core**. Here's why 
 
 <br>
 
-## Quick Start
+## Configuration
 
-**Install** (no Node.js required)
-```bash
-curl -fsSL https://raw.githubusercontent.com/inawafalm/CamelAGI/main/install.sh | bash
+CamelAGI uses a single YAML config file at `~/.camelagi/config.yaml`, validated with Zod.
+
+```yaml
+# Provider & Model
+provider: anthropic          # anthropic | openai | openrouter | ollama
+model: claude-sonnet-4-20250514
+anthropicApiKey: sk-ant-...
+
+# Telegram
+telegramBotToken: "123456:ABC..."
+allowedTelegramUsers: [123456789]
+
+# Agents
+agents:
+  coder:
+    model: claude-sonnet-4-20250514
+    thinkingLevel: medium
+    briefMode: true
+    telegramBotToken: "654321:XYZ..."
+    mcp:
+      servers:
+        github:
+          type: stdio
+          command: npx
+          args: ["-y", "@modelcontextprotocol/server-github"]
+
+# MCP Servers (global)
+mcp:
+  servers:
+    supabase:
+      type: http
+      url: https://mcp.supabase.com/...
 ```
 
-**Or via npm**
-```bash
-npm install -g camelagi
+Environment variables override file values: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CAMELAGI_MODEL`, `CAMELAGI_PROVIDER`, `CAMELAGI_TOKEN`, `TELEGRAM_BOT_TOKEN`.
+
+See [featuresDocs/configuration.md](featuresDocs/configuration.md) for the full configuration reference.
+
+<br>
+
+## Architecture
+
+```
+~/.camelagi/
+├── config.yaml              ← Single config file
+├── workspace/               ← Default agent workspace
+│   ├── SOUL.md              ← Default personality
+│   ├── MEMORY.md            ← Default curated memory
+│   └── memory/              ← Daily notes
+├── agents/                  ← Per-agent isolated directories
+│   └── <agent-id>/
+│       ├── SOUL.md
+│       ├── TOOLS.md
+│       ├── MEMORY.md
+│       └── memory/
+├── sessions/                ← JSONL conversation history
+├── skills/                  ← Markdown skill files
+└── usage/                   ← Token usage data
 ```
 
-**Usage**
-```bash
-camel bootstrap     # Full setup: admin bot + pairing + API config
-camel serve         # Start the gateway (after bootstrap)
-camel chat          # Terminal UI
+**Request flow:**
+
 ```
-
-<br>
-
-## Admin Bot — BotFather for Your AI Server
-
-Create agents, manage config, approve users, monitor sessions, restart bots — all from Telegram. The Admin Bot is a **non-AI Telegram bot** — no LLM calls, no tokens burned, just instant commands. Think [@BotFather](https://t.me/BotFather), but for your entire AI infrastructure.
-
-### Getting Started
-
-1. Create a bot with [@BotFather](https://t.me/BotFather) on Telegram
-2. Run `camel bootstrap` and paste the bot token
-3. Send a message to your bot on Telegram — the CLI detects you
-4. Approve yourself in the CLI, then enter the OTP in Telegram
-5. Pick your AI provider and model (or skip and do it later via `/setup` in Telegram)
-6. Done — use `/newagent` in Telegram to create your first AI agent
-
-### Commands
-
-| Category | Command | Description |
-|----------|---------|-------------|
-| **Agents** | `/newagent` | Create agent wizard |
-| | `/agents` | List all agents |
-| | `/deleteagent` | Delete an agent |
-| | `/soul` | View/edit agent personality |
-| **Config** | `/config` | View configuration |
-| | `/config <key> <value>` | Update config |
-| | `/setup` | API provider wizard |
-| **Monitor** | `/status` | System health & stats |
-| | `/sessions` | List & manage sessions |
-| | `/restart` | Restart agent bots |
-| **Security** | `/pairing` | Manage access requests |
-
-<br>
-
-## Features
-
-> Terminal or Telegram — same agent, same tools, same memory.
-
-| | Feature | Description |
-|---|---|---|
-| ⌨️ | **camel chat — Terminal UI** | Full TUI with streaming, slash commands, model switching, session management, tool output, and markdown rendering |
-| 🤖 | **Telegram — Admin Bot** | @BotFather for AI agents. Create, configure, and manage agents entirely from Telegram — instant commands, zero tokens burned |
-| 💬 | **Telegram — Agent Bots** | Each agent gets its own Telegram bot. Message it like any chat — it runs tools, reads files, remembers context |
-| ⚙️ | **Same Engine** | Both interfaces run the same agent loop, same 10 tools, same two-tier memory. Switch between terminal and Telegram anytime |
-| 🧠 | **Agent Memory** | Each agent gets isolated two-tier memory — curated MEMORY.md + daily auto-journaling with recency-boosted search |
-| ⏰ | **Cron Jobs** | Schedule AI tasks — daily summaries, monitoring, automations. Manage from Telegram, CLI, or the agent itself |
-| 🛡️ | **Tool Approvals** | Human-in-the-loop safety. Approve dangerous operations from Telegram with inline buttons — even headless |
-| 💭 | **Extended Thinking** | Claude reasons step by step before answering. Configure depth: off, low, medium, high |
-| 🔌 | **Multi-Provider** | Anthropic, OpenAI, OpenRouter, Ollama — any OpenAI-compatible endpoint. Zero vendor lock-in |
-| 🔐 | **Secure Pairing** | OTP-based user verification. No hardcoded IDs — pairing code + 5-digit OTP from Telegram |
-| 🪝 | **Skills & Hooks** | Teach agents skills via Markdown. Run shell/JS hooks before and after tool calls |
-| 🔄 | **Auto Compaction** | Summarizes old turns at 80% capacity. Flushes facts to memory first — nothing is lost |
-
-<br>
-
-## Terminal UI — `camel chat`
-
-Don't want to use Telegram? `camel chat` gives you a full terminal interface with the same agent capabilities.
-
-- Streaming responses with markdown rendering
-- Slash commands (`/model`, `/sessions`, `/tools`, `/compact`, `/status`, `/context`)
-- Model selector overlay (`Ctrl+L`), session switcher (`Ctrl+P`)
-- Tool output toggle (`Ctrl+O`), abort with `Escape`
-- Shell execution with `!command`
-- Agent creation wizard, SOUL.md editing
-- Thinking indicators, subagent progress, approval overlay
-- One-shot mode: `camel "your question"` for quick answers
-
-<br>
-
-## Developer Experience
-
-| | **CamelAGI** | **OpenClaw** |
-|---|---|---|
-| **Codebase size** | ~10K LOC | ~700K+ LOC |
-| **AI Agent runtime** | [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) — fully documented by Anthropic, easy to extend | pi-agent & custom abstractions |
-
-<br>
-
-## Roadmap
-
-We're building CamelAGI to be the most capable open-source AI platform — for individuals and businesses alike.
-
-| | Feature | Description |
-|---|---|---|
-| 📡 | **More Channels** | WhatsApp, Discord, Slack — connect your AI agents to every platform your team already uses |
-| 🧩 | **ClawHub Skills** | Browse and install community skills from [clawhub.io](https://clawhub.io) — one command to add new capabilities to any agent |
-| 🖥️ | **Native Desktop Apps** | Standalone macOS and Windows apps to run CamelAGI natively — no terminal, no companion app required |
-| 🏢 | **Business Ready** | Deploy CamelAGI for your business — finance, accounting, operations, customer support. AI agents that understand your workflows |
+Inbound message (TUI / REST / WS / Telegram / Discord)
+  → Queue check (per-session, prevents concurrent runs)
+  → Lane acquisition (concurrency limits: main/cron/subagent)
+  → History loading + compaction (summarize at 80% of maxTokens)
+  → Agent execution with retry (classify error → backoff or compact → retry)
+  → Message persistence (JSONL sessions)
+  → Cleanup (release lane, drain queued messages)
+```
 
 <br>
 
@@ -216,6 +339,19 @@ We're building CamelAGI to be the most capable open-source AI platform — for i
 | [DOCS.md](DOCS.md) | Full reference documentation |
 | [GUIDE.md](GUIDE.md) | User guide with examples |
 | [featuresDocs/](featuresDocs/) | Deep-dive feature docs |
+
+Feature docs cover: [agent system](featuresDocs/agent-system.md), [memory](featuresDocs/memory-system.md), [Telegram bots](featuresDocs/telegram-bots.md), [gateway server](featuresDocs/gateway-server.md), [runtime](featuresDocs/runtime.md), [tools](featuresDocs/tools.md), [extensions](featuresDocs/extensions.md), [configuration](featuresDocs/configuration.md), [CLI](featuresDocs/cli-commands.md), [TUI](featuresDocs/tui.md), [pairing](featuresDocs/pairing-otp.md).
+
+<br>
+
+## Roadmap
+
+| | Feature | Description |
+|---|---|---|
+| 📡 | **More Channels** | WhatsApp, Slack — connect your AI agents to every platform your team already uses |
+| 🧩 | **ClawHub Skills** | Browse and install community skills from [clawhub.io](https://clawhub.io) — one command to add new capabilities |
+| 🖥️ | **Native Desktop Apps** | Standalone macOS and Windows apps — no terminal required |
+| 🏢 | **Business Ready** | Deploy for your business — finance, operations, customer support. AI agents that understand your workflows |
 
 <br>
 
