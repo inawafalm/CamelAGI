@@ -467,7 +467,9 @@ export async function handleMessage(opts: HandleMessageOpts): Promise<string> {
     return response;
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
+    const errStack = err instanceof Error ? err.stack : undefined;
     slog.error(channelType, "Agent run failed", { agent: agent.name, sessionId, error: errMsg });
+    if (errStack) console.error(errStack);
 
     if (timer) { clearTimeout(timer); timer = null; }
     if (messageId) {
