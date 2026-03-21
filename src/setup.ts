@@ -150,21 +150,32 @@ async function runTelegramSetup(): Promise<void> {
   p.log.step("Telegram Admin Bot");
   p.log.info("Create a bot in Telegram via @BotFather \u2192 /newbot, then paste the token.");
 
-  const botToken = check(await p.password({ message: "Bot token" }));
-  if (!botToken.trim()) {
-    p.log.warn("Skipped \u2014 add Telegram later with camel setup.");
-    return;
-  }
+  let botToken: string | undefined;
+  let result: { ok: boolean; username?: string; name?: string; error?: string };
 
-  // Validate token
-  const s = p.spinner();
-  s.start("Validating...");
-  const result = await validateBotToken(botToken.trim());
-  if (!result.ok) {
+  // Retry loop for token validation
+  for (;;) {
+    const raw = check(await p.password({ message: "Bot token" }));
+    botToken = typeof raw === "string" ? raw.trim() : "";
+    if (!botToken) {
+      p.log.warn("Skipped \u2014 add Telegram later with camel setup.");
+      return;
+    }
+
+    const s = p.spinner();
+    s.start("Validating...");
+    result = await validateBotToken(botToken);
+    if (result.ok) {
+      s.stop(`Bot valid: @${result.username}`);
+      break;
+    }
     s.stop(`Invalid token: ${result.error}`);
-    return;
+    const retry = check(await p.confirm({ message: "Try again?" }));
+    if (!retry) {
+      p.log.warn("Skipped \u2014 add Telegram later with camel setup.");
+      return;
+    }
   }
-  s.stop(`Bot valid: @${result.username}`);
 
   // Save admin bot config
   saveConfig({
