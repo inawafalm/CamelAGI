@@ -174,7 +174,7 @@ export async function handleCommand(
 
       const client = createClient(config);
       const result = await compactHistory(client, agent.model, history, {
-        ...config.compaction,
+        ...(config.compaction ?? {}),
         enabled: true,
         agentId: agentId === "default" ? undefined : agentId,
       });

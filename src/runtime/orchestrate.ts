@@ -107,7 +107,7 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
   try {
     // Load + compact history
     let history = loadMessages(sessionId);
-    const compacted = await compactHistory(client, model, history, { ...config.compaction, agentId });
+    const compacted = await compactHistory(client, model, history, { ...(config.compaction ?? {}), agentId });
     if (compacted) {
       onCompact?.(history.length, compacted.length);
       history = compacted;
@@ -120,14 +120,14 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
         timeoutMs: config.timeoutSeconds * 1000,
         signal: abortController?.signal,
         onEvent,
-        toolPolicy: config.tools,
-        hooksEnabled: config.hooks.enabled,
+        toolPolicy: config.tools ?? { allow: [], deny: [] },
+        hooksEnabled: config.hooks?.enabled ?? false,
         sessionId,
         thinking,
         effort,
         provider: config.provider,
         baseUrl: config.baseUrl,
-        approvals: config.approvals,
+        approvals: config.approvals ?? { mode: "off" as const, allowlist: [], timeoutSeconds: 120, fallback: "deny" as const },
         ...(() => {
           // Merge global + per-agent MCP servers (agent overrides global on name collision)
           const global = config.mcp?.servers ?? {};
@@ -140,8 +140,8 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
         ...(agentId && { agentId }),
       }),
       {
-        maxRetries: config.retry.maxRetries,
-        backoffMs: config.retry.backoffMs,
+        maxRetries: config.retry?.maxRetries ?? 3,
+        backoffMs: config.retry?.backoffMs ?? 1000,
         onRetry: onRetry
           ? (attempt, kind) => onRetry(attempt, kind)
           : undefined,
