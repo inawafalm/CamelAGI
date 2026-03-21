@@ -26,15 +26,19 @@ export async function runSetup() {
   const hasAdmin = !!existing?.agents?.admin?.telegram?.botToken;
   const hasVerifiedUser = (existing?.agents?.admin?.telegram?.allowedUsers?.length ?? 0) > 0;
 
+  // Show current status
+  if (hasApiKey) p.log.success(`API: ${existing!.provider} / ${existing!.model}`);
+  else p.log.step("API: not configured");
+  if (hasAdmin && hasVerifiedUser) p.log.success("Telegram: connected");
+  else if (hasAdmin) p.log.warn("Telegram: bot set, user not verified");
+  else p.log.step("Telegram: not configured");
+
   if (hasApiKey && hasAdmin && hasVerifiedUser) {
-    p.log.success(`Already configured: ${existing!.provider} / ${existing!.model}`);
-    const redo = check(await p.confirm({ message: "Reconfigure?" }));
+    const redo = check(await p.confirm({ message: "Everything is set up. Reconfigure?" }));
     if (!redo) {
       p.outro("Nothing changed.");
       return;
     }
-  } else if (hasApiKey) {
-    p.log.info(`API configured: ${existing!.provider} / ${existing!.model}`);
   }
 
   // ── Mode selection ──────────────────────────────────────────────
@@ -52,7 +56,9 @@ export async function runSetup() {
 
   // ── 1. API Provider ─────────────────────────────────────────────
 
-  if (!hasApiKey || check(await p.confirm({ message: "Reconfigure API provider?" }))) {
+  if (!hasApiKey) {
+    await runApiSetup();
+  } else if (check(await p.confirm({ message: "Reconfigure API provider?", initialValue: false }))) {
     await runApiSetup();
   }
 
