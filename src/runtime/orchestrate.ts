@@ -130,7 +130,7 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
         approvals: config.approvals,
         ...(() => {
           // Merge global + per-agent MCP servers (agent overrides global on name collision)
-          const global = config.mcp.servers;
+          const global = config.mcp?.servers ?? {};
           const agent = agentId ? config.agents[agentId]?.mcp?.servers ?? {} : {};
           const merged = { ...global, ...agent };
           return Object.keys(merged).length > 0 ? { mcpServers: merged } : {};
