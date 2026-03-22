@@ -259,7 +259,7 @@ function buildModelSteps(getConfig: () => Config): WizardStep[] {
       columns: 2,
       skip: (data) => data.useRecommended === "__recommended__",
       options: [
-        { label: `✓ Keep default`, value: "__default__" },
+        { label: `✓ ${config.model} (default)`, value: "__default__" },
         ...providerNames.map(p => ({
           label: `${providerLabels[p] ?? p} (${groups.get(p)!.length})`,
           value: p,
@@ -382,7 +382,6 @@ export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: (
       saveConfig({ agents });
 
       if (data.token && data.token !== "__skip__") {
-        // Request admin approval before starting the bot
         const validationResult = await validateBotToken(data.token);
         const botUsername = validationResult.ok ? validationResult.username : undefined;
         requestBotApproval({
@@ -393,29 +392,12 @@ export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: (
           model: model ?? config.model,
           requestedAt: Date.now(),
         });
-
-        // Send approval message with inline buttons
-        const approvalText = [
-          `New agent wants to connect\n`,
-          `Name: ${data.name}`,
-          `ID: ${id}`,
-          botUsername ? `Bot: @${botUsername}` : null,
-          `Model: ${model ?? config.model}`,
-        ].filter(Boolean).join("\n");
-
-        const keyboard = new InlineKeyboard()
-          .text("Approve", `botapproval:approve:${id}`)
-          .text("Deny", `botapproval:deny:${id}`);
-
-        try {
-          await bot.api.sendMessage(chatId, approvalText, { reply_markup: keyboard });
-        } catch { /* best effort */ }
-
-        tokenInfo += "\nBot pending approval. Approve to start polling.";
+        if (botUsername) tokenInfo += `\nTelegram: @${botUsername}`;
       }
 
+      // Send creation summary first
       const dir = agentMemoryDir(id);
-      return [
+      const summary = [
         `Agent created!\n`,
         `Name: ${data.name}`,
         `ID: ${id}`,
@@ -423,6 +405,23 @@ export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: (
         tokenInfo,
         `\n${dir}`,
       ].filter(Boolean).join("\n");
+
+      try {
+        await bot.api.sendMessage(chatId, summary);
+      } catch { /* best effort */ }
+
+      // Then send approval buttons as the last message
+      if (data.token && data.token !== "__skip__") {
+        const keyboard = new InlineKeyboard()
+          .text("Approve", `botapproval:approve:${id}`)
+          .text("Deny", `botapproval:deny:${id}`);
+
+        try {
+          await bot.api.sendMessage(chatId, `Start @${data.name} bot?`, { reply_markup: keyboard });
+        } catch { /* best effort */ }
+      }
+
+      return null as unknown as string;
     },
   };
 }

@@ -1,6 +1,6 @@
 {
   "name": "camelagi",
-  "version": "0.5.14",
+  "version": "0.5.17",
   "description": "Personal AI agent powered by Claude Agent SDK — manage everything from Telegram",
   "type": "module",
   "bin": {
@@ -9,16 +9,16 @@
   },
   "scripts": {
     "build": "tsc",
+    "start": "node dist/cli.js serve",
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
     "lint": "tsc --noEmit",
     "bundle:gateway": "node esbuild.gateway.mjs",
     "build:all": "npm run build && npm run bundle:gateway",
-    "compile": "npm run build && bun build dist/cli.js --compile --target=bun-darwin-arm64 --outfile=release/camelagi-darwin-arm64",
-    "compile:all": "npm run build && mkdir -p release && bun build dist/cli.js --compile --target=bun-darwin-arm64 --outfile=release/camelagi-darwin-arm64 && bun build dist/cli.js --compile --target=bun-darwin-x64 --outfile=release/camelagi-darwin-x64 && bun build dist/cli.js --compile --target=bun-linux-x64 --outfile=release/camelagi-linux-x64 && bun build dist/cli.js --compile --target=bun-linux-arm64 --outfile=release/camelagi-linux-arm64"
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.79",
+    "@anthropic-ai/claude-agent-sdk": "0.2.79",
     "@anthropic-ai/sdk": "^0.x",
     "@clack/prompts": "^1.1.0",
     "@mariozechner/pi-tui": "^0.57.1",
@@ -72,6 +72,6 @@
     "bot"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=23"
   }
 }

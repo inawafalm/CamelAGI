@@ -1,30 +1,16 @@
-// CLI command: camel update — download latest version from GitHub Releases
+// CLI command: camel update — update via npm
 
 import { register } from "./registry.js";
 import { VERSION } from "../core/version.js";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { exec } from "node:child_process";
 
-const REPO = "inawafalm/CamelAGI";
-const VERSIONS_DIR = path.join(os.homedir(), ".camelagi", "versions");
-const BIN_DIR = path.join(os.homedir(), ".camelagi", "bin");
-const MAX_KEPT_VERSIONS = 3;
-
-function compareSemver(a: string, b: string): number {
-  const pa = a.replace(/^v/, "").split(".").map(Number);
-  const pb = b.replace(/^v/, "").split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    if ((pa[i] ?? 0) > (pb[i] ?? 0)) return 1;
-    if ((pa[i] ?? 0) < (pb[i] ?? 0)) return -1;
-  }
-  return 0;
-}
-
-function getPlatform(): string {
-  const osName = process.platform === "darwin" ? "darwin" : "linux";
-  const arch = process.arch === "arm64" ? "arm64" : "x64";
-  return `${osName}-${arch}`;
+function run(cmd: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    exec(cmd, { encoding: "utf-8" }, (err, stdout) => {
+      if (err) reject(err);
+      else resolve(stdout.trim());
+    });
+  });
 }
 
 register({
@@ -36,100 +22,39 @@ register({
     p.intro("\x1b[36mCamelAGI\x1b[0m update");
     p.log.info(`Current version: ${VERSION}`);
 
-    // 1. Check latest release
     const s = p.spinner();
     s.start("Checking for updates...");
 
     let latest: string;
-    let downloadUrl: string;
     try {
-      const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!res.ok) throw new Error(`GitHub API: ${res.status}`);
-      const data = await res.json() as { tag_name: string; assets: { name: string; browser_download_url: string }[] };
-      latest = data.tag_name.replace(/^v/, "");
-
-      const platform = getPlatform();
-      const binaryName = `camelagi-${platform}`;
-      const asset = data.assets.find(a => a.name === binaryName);
-      if (!asset) {
-        s.stop("No binary available");
-        p.log.error(`No binary for ${platform} in release ${data.tag_name}`);
-        p.outro("Check https://github.com/" + REPO + "/releases");
-        return;
-      }
-      downloadUrl = asset.browser_download_url;
+      latest = await run("npm view camelagi version");
     } catch (err) {
       s.stop("Failed");
-      p.log.error(`Could not check for updates: ${err instanceof Error ? err.message : err}`);
+      p.log.error(`Could not check npm: ${err instanceof Error ? err.message : err}`);
       return;
     }
 
-    if (compareSemver(latest, VERSION) <= 0) {
+    if (latest === VERSION) {
       s.stop("Up to date");
       p.log.success(`Already on latest version (${VERSION})`);
       p.outro("");
       return;
     }
 
-    s.stop(`New version available: ${latest}`);
+    s.stop(`New version available: ${VERSION} → ${latest}`);
 
-    // 2. Download
     const s2 = p.spinner();
-    s2.start(`Downloading v${latest}...`);
-
-    fs.mkdirSync(VERSIONS_DIR, { recursive: true });
-    const destPath = path.join(VERSIONS_DIR, latest);
+    s2.start(`Installing v${latest}...`);
 
     try {
-      const res = await fetch(downloadUrl, { signal: AbortSignal.timeout(120000) });
-      if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-      const buffer = Buffer.from(await res.arrayBuffer());
-      fs.writeFileSync(destPath, buffer);
-      fs.chmodSync(destPath, 0o755);
-      s2.stop(`Downloaded (${(buffer.length / 1024 / 1024).toFixed(1)} MB)`);
+      await run("npm i -g camelagi@latest");
+      s2.stop(`Installed v${latest}`);
     } catch (err) {
-      s2.stop("Download failed");
+      s2.stop("Install failed");
       p.log.error(`${err instanceof Error ? err.message : err}`);
-      try { fs.unlinkSync(destPath); } catch {}
+      p.log.info("Try manually: npm i -g camelagi@latest");
       return;
     }
-
-    // 3. Swap symlink
-    fs.mkdirSync(BIN_DIR, { recursive: true });
-    const camelLink = path.join(BIN_DIR, "camel");
-    const camelagiLink = path.join(BIN_DIR, "camelagi");
-
-    try { fs.unlinkSync(camelLink); } catch {}
-    try { fs.unlinkSync(camelagiLink); } catch {}
-    fs.symlinkSync(destPath, camelLink);
-    fs.symlinkSync(destPath, camelagiLink);
-
-    // Also update /usr/local/bin symlinks if they exist
-    try {
-      if (fs.lstatSync("/usr/local/bin/camel").isSymbolicLink()) {
-        fs.unlinkSync("/usr/local/bin/camel");
-        fs.symlinkSync(destPath, "/usr/local/bin/camel");
-      }
-    } catch {}
-    try {
-      if (fs.lstatSync("/usr/local/bin/camelagi").isSymbolicLink()) {
-        fs.unlinkSync("/usr/local/bin/camelagi");
-        fs.symlinkSync(destPath, "/usr/local/bin/camelagi");
-      }
-    } catch {}
-
-    // 4. Clean old versions (keep last N)
-    try {
-      const versions = fs.readdirSync(VERSIONS_DIR)
-        .filter(f => /^\d+\.\d+\.\d+/.test(f))
-        .sort((a, b) => compareSemver(b, a)); // newest first
-
-      for (const v of versions.slice(MAX_KEPT_VERSIONS)) {
-        fs.unlinkSync(path.join(VERSIONS_DIR, v));
-      }
-    } catch {}
 
     p.log.success(`Updated: ${VERSION} → ${latest}`);
     p.outro("Restart any running server to use the new version.");

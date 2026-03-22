@@ -1,16 +1,11 @@
 // Path 1: Claude Agent SDK (full agent with tools, thinking, subagents)
 
 import { query, createSdkMcpServer, type HookCallback } from "@anthropic-ai/claude-agent-sdk";
-import { createRequire } from "node:module";
 import path from "node:path";
 import type { Message } from "../core/types.js";
 import type { ToolDef } from "../core/types.js";
 
-// Resolve the SDK's bundled cli.js using realpath to handle symlinks
 import fs from "node:fs";
-const _require = createRequire(import.meta.url);
-const sdkEntry = fs.realpathSync(_require.resolve("@anthropic-ai/claude-agent-sdk"));
-const sdkCliPath = path.join(path.dirname(sdkEntry), "cli.js");
 import { memorySearchTool, memoryGetTool, createScopedMemoryTools } from "../tools/memory.js";
 import { agentMemoryDir } from "../workspace.js";
 import { patchTool } from "../tools/patch.js";
@@ -183,7 +178,6 @@ export async function runAgentSdk(
     allowedTools,
     mcpServers,
     maxTurns: opts?.maxTurns ?? DEFAULT_MAX_TURNS,
-    pathToClaudeCodeExecutable: sdkCliPath,
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
     cwd: process.cwd(),
@@ -202,15 +196,7 @@ export async function runAgentSdk(
   if (opts?.resumeSessionId) queryOptions.resume = opts.resumeSessionId;
   if (abortController) queryOptions.abortController = abortController;
 
-  process.stderr.write(`[agent-sdk] pathToClaudeCodeExecutable=${queryOptions.pathToClaudeCodeExecutable}\n`);
-
-  let q: ReturnType<typeof query>;
-  try {
-    q = query({ prompt: effectivePrompt, options: queryOptions as any });
-  } catch (setupErr: unknown) {
-    if (setupErr instanceof Error) process.stderr.write(`\x1b[31m[agent-sdk] query() setup error: ${setupErr.message}\n${setupErr.stack}\x1b[0m\n`);
-    throw setupErr;
-  }
+  const q = query({ prompt: effectivePrompt, options: queryOptions as any });
 
   // The for-await loop may throw if the SDK subprocess exits unexpectedly
   // (e.g. non-Claude models via OpenRouter). If we already captured a result
@@ -266,10 +252,7 @@ export async function runAgentSdk(
   } catch (err: unknown) {
     // If the subprocess exited but we already have a response, return it.
     // Otherwise, re-throw so the retry/error handling picks it up.
-    if (!result) {
-      if (err instanceof Error) process.stderr.write(`\x1b[31m[agent-sdk] ${err.message}\n${err.stack}\x1b[0m\n`);
-      throw err;
-    }
+    if (!result) throw err;
   }
 
   const userMsg: Message = { role: "user", content: userMessage };

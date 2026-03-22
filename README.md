@@ -49,19 +49,56 @@ Powered by <a href="https://platform.claude.com/docs/en/agent-sdk/overview">Clau
 
 ## Quick Start
 
-**Install** (no Node.js required)
-```bash
-curl -fsSL https://raw.githubusercontent.com/inawafalm/CamelAGI/main/install.sh | bash
+> **Requirements:** Node.js 23+
+
+<table>
+<tr>
+<td width="33%">
+
+### 1. Install
+
+Install the CamelAGI CLI with npm.
+
+```
+npm i -g camelagi
 ```
 
-**Setup & Run**
-```bash
-camel bootstrap     # Full setup: admin bot + pairing + API config
-camel serve         # Start the gateway server
-camel chat          # Terminal UI
+</td>
+<td width="33%">
+
+### 2. Setup & Run
+
+Run the bootstrap wizard, then start the server.
+
+```
+camel bootstrap
+camel serve
 ```
 
-`bootstrap` walks you through everything: create a Telegram admin bot, pair your account with OTP, pick your AI provider and model. After that, use `/newagent` in Telegram to create your first AI agent.
+The first time you run `bootstrap`, it walks you through everything: create a Telegram admin bot, pair your account, pick your AI provider and model.
+
+</td>
+<td width="33%">
+
+### 3. Update
+
+New versions are published to npm. To upgrade, run:
+
+```
+camel update
+```
+
+Or directly:
+
+```
+npm i -g camelagi@latest
+```
+
+</td>
+</tr>
+</table>
+
+After setup, use `/newagent` in Telegram to create your first AI agent, or run `camel chat` for the terminal UI.
 
 <br>
 
