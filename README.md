@@ -42,7 +42,6 @@ Powered by <a href="https://platform.claude.com/docs/en/agent-sdk/overview">Clau
 - [Configuration](#configuration)
 - [Architecture](#architecture)
 - [Documentation](#documentation)
-- [Roadmap](#roadmap)
 - [License](#license)
 
 <br>
@@ -51,54 +50,17 @@ Powered by <a href="https://platform.claude.com/docs/en/agent-sdk/overview">Clau
 
 > **Requirements:** Node.js 23+
 
-<table>
-<tr>
-<td width="33%">
+| Install | Setup & Run | Update |
+|:--------|:------------|:-------|
+| `npm i -g camelagi` | `camel setup` | `camel update` |
 
-### 1. Install
-
-Install the CamelAGI CLI with npm.
-
-```
-npm i -g camelagi
+```bash
+camel setup      # First-time setup: API key, Telegram bot, provider
+camel serve      # Start the gateway server
+camel chat       # Terminal UI
 ```
 
-</td>
-<td width="33%">
-
-### 2. Setup & Run
-
-Run the bootstrap wizard, then start the server.
-
-```
-camel bootstrap
-camel serve
-```
-
-The first time you run `bootstrap`, it walks you through everything: create a Telegram admin bot, pair your account, pick your AI provider and model.
-
-</td>
-<td width="33%">
-
-### 3. Update
-
-New versions are published to npm. To upgrade, run:
-
-```
-camel update
-```
-
-Or directly:
-
-```
-npm i -g camelagi@latest
-```
-
-</td>
-</tr>
-</table>
-
-After setup, use `/newagent` in Telegram to create your first AI agent, or run `camel chat` for the terminal UI.
+After setup, use `/newagent` in Telegram to create your first AI agent.
 
 <br>
 
@@ -380,16 +342,6 @@ Inbound message (TUI / REST / WS / Telegram / Discord)
 | [featuresDocs/](featuresDocs/) | Deep-dive feature docs |
 
 Feature docs cover: [agent system](featuresDocs/agent-system.md), [memory](featuresDocs/memory-system.md), [Telegram bots](featuresDocs/telegram-bots.md), [gateway server](featuresDocs/gateway-server.md), [runtime](featuresDocs/runtime.md), [tools](featuresDocs/tools.md), [extensions](featuresDocs/extensions.md), [configuration](featuresDocs/configuration.md), [CLI](featuresDocs/cli-commands.md), [TUI](featuresDocs/tui.md), [pairing](featuresDocs/pairing-otp.md).
-
-<br>
-
-## Roadmap
-
-| | Feature | Description |
-|---|---|---|
-| 📡 | **More Channels** | WhatsApp, Slack — connect your AI agents to every platform your team already uses |
-| 🧩 | **ClawHub Skills** | Browse and install community skills from [clawhub.io](https://clawhub.io) — one command to add new capabilities |
-| 🏢 | **Business Ready** | Deploy for your business — finance, operations, customer support. AI agents that understand your workflows |
 
 <br>
 
