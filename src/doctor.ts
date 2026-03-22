@@ -190,10 +190,10 @@ export async function runDoctor(): Promise<Check[]> {
   // 14. Node.js version
   const nodeVersion = process.version;
   const major = parseInt(nodeVersion.slice(1), 10);
-  if (major >= 20) {
+  if (major >= 23) {
     checks.push({ name: "Node.js", status: "ok", message: nodeVersion });
   } else {
-    checks.push({ name: "Node.js", status: "warn", message: `${nodeVersion} (20+ recommended)` });
+    checks.push({ name: "Node.js", status: "warn", message: `${nodeVersion} (23+ required for Claude Agent SDK)` });
   }
 
   return checks;

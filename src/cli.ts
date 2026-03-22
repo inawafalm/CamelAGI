@@ -20,7 +20,6 @@ import "./cli/cmd-soul.js";
 import "./cli/cmd-sessions.js";
 import "./cli/cmd-chat.js";
 import "./cli/cmd-pairing.js";
-import "./cli/cmd-install.js";
 import "./cli/cmd-uninstall.js";
 import "./cli/cmd-update.js";
 import "./cli/cmd-bootstrap.js";

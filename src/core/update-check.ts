@@ -1,8 +1,6 @@
-// Check for newer version on GitHub Releases (non-blocking, fails silently)
+// Check for newer version on npm registry (non-blocking, fails silently)
 
 import { VERSION } from "./version.js";
-
-const REPO = "inawafalm/CamelAGI";
 
 /** Compare semver strings. Returns 1 if a > b, -1 if a < b, 0 if equal. */
 function compareSemver(a: string, b: string): number {
@@ -16,18 +14,18 @@ function compareSemver(a: string, b: string): number {
 }
 
 /**
- * Check GitHub releases for a newer version.
+ * Check npm registry for a newer version.
  * Returns update info or null. Never throws.
  */
 export async function checkForUpdate(): Promise<{ current: string; latest: string } | null> {
   try {
-    const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+    const res = await fetch("https://registry.npmjs.org/camelagi/latest", {
       signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return null;
 
-    const data = await res.json() as { tag_name?: string };
-    const latest = data.tag_name?.replace(/^v/, "");
+    const data = await res.json() as { version?: string };
+    const latest = data.version;
     if (!latest) return null;
 
     if (compareSemver(latest, VERSION) > 0) {

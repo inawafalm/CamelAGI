@@ -74,10 +74,10 @@ Examples:
     // Unlink global CLI
     if (!keepCli) {
       try {
-        execSync("npm unlink -g camelagi 2>/dev/null", { stdio: "ignore" });
-        p.log.success("Global CLI unlinked");
+        execSync("npm uninstall -g camelagi 2>/dev/null", { stdio: "ignore" });
+        p.log.success("Global CLI removed");
       } catch {
-        p.log.warn("Could not unlink global CLI \u2014 run: npm unlink -g camelagi");
+        p.log.warn("Could not remove global CLI \u2014 run: npm uninstall -g camelagi");
       }
     }
 

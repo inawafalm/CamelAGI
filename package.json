@@ -1,6 +1,6 @@
 {
   "name": "camelagi",
-  "version": "0.5.17",
+  "version": "0.5.18",
   "description": "Personal AI agent powered by Claude Agent SDK — manage everything from Telegram",
   "type": "module",
   "bin": {
@@ -15,6 +15,7 @@
     "lint": "tsc --noEmit",
     "bundle:gateway": "node esbuild.gateway.mjs",
     "build:all": "npm run build && npm run bundle:gateway",
+    "postinstall": "echo '\n  \\033[36mCamelAGI\\033[0m installed!\\n\\n  Get started:\\n    camel setup    # First-time setup\\n    camel serve    # Start server\\n    camel chat     # Terminal UI\\n'",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

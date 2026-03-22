@@ -138,8 +138,13 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
       ...(agentId ? { agentId } : {}),
     };
 
+    if (!config.apiKey) {
+      throw new Error("No API key configured. Run: camel setup");
+    }
+    const apiKey = config.apiKey;
+
     const result = await withRetry(
-      () => runAgent(config.apiKey!, model, agentSystemPrompt, history, message, agentOpts),
+      () => runAgent(apiKey, model, agentSystemPrompt, history, message, agentOpts),
       {
         maxRetries: config.retry?.maxRetries ?? 3,
         backoffMs: config.retry?.backoffMs ?? 1000,

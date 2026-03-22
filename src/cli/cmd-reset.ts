@@ -36,6 +36,6 @@ Examples:
     }
 
     fs.rmSync(configDir, { recursive: true, force: true });
-    p.log.success("~/.camelagi deleted. Run \x1b[36mcamelagi bootstrap\x1b[0m to start fresh.");
+    p.log.success("~/.camelagi deleted. Run \x1b[36mcamel setup\x1b[0m to start fresh.");
   },
 });
