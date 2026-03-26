@@ -20,7 +20,12 @@ import type { GatewayState } from "./state.js";
 import { checkAuth, logMessage } from "./state.js";
 
 export function registerRoutes(app: Express, state: GatewayState): void {
-  app.get("/health", (_req, res) => {
+  app.get("/health", (req, res) => {
+    // When token is configured but request is unauthenticated, return minimal response
+    if (state.token && !checkAuth(state, req.headers.authorization)) {
+      res.json({ status: "ok" });
+      return;
+    }
     res.json({
       status: "ok",
       uptime: Math.floor((Date.now() - state.startTime) / 1000),
@@ -28,6 +33,7 @@ export function registerRoutes(app: Express, state: GatewayState): void {
       clients: state.clients.size,
       activeRuns: getActiveRunCount(),
       lanes: getLaneStats(),
+      tailscaleUrl: state.tailscaleUrl ?? null,
     });
   });
 

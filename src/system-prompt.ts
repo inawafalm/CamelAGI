@@ -5,13 +5,15 @@ import path from "node:path";
 import os from "node:os";
 import { loadSkills, formatSkillsForPrompt } from "./extensions/skills.js";
 import { CHARS_PER_TOKEN, MAX_BOOTSTRAP_FILE_CHARS, MAX_BOOTSTRAP_TOTAL_CHARS } from "./core/constants.js";
-import { loadBootstrapFiles, agentMemoryDir, workspacePaths, truncateFile } from "./workspace.js";
+import { loadBootstrapFiles, filterBootstrapFiles, agentMemoryDir, workspacePaths, truncateFile, type SessionType } from "./workspace.js";
 
 const { workspaceDir } = workspacePaths;
 
-export function buildSystemPrompt(basePrompt: string, skillsConfig?: { enabled: boolean; deny: string[] }, agentId?: string): string {
-  const files = loadBootstrapFiles(agentId);
+export function buildSystemPrompt(basePrompt: string, skillsConfig?: { enabled: boolean; deny: string[] }, agentId?: string, sessionType?: SessionType): string {
+  const allFiles = loadBootstrapFiles(agentId);
+  const files = filterBootstrapFiles(allFiles, sessionType);
   const memRoot = agentMemoryDir(agentId);
+  const isMinimalSession = sessionType === "cron" || sessionType === "subagent";
   const sections: string[] = [];
 
   // Base identity
@@ -93,27 +95,29 @@ export function buildSystemPrompt(basePrompt: string, skillsConfig?: { enabled: 
     }
   }
 
-  // Memory note — scoped to agent dir when applicable
-  const memoryNoteDir = path.join(memRoot, "memory");
-  if (fs.existsSync(memoryNoteDir)) {
-    const dailyFiles = fs.readdirSync(memoryNoteDir).filter((f) => f.endsWith(".md"));
-    const memLines = [];
-    if (dailyFiles.length > 0) {
-      memLines.push(`${dailyFiles.length} daily memory file(s) available. Use memory_search to find past context.`);
+  // Memory note — scoped to agent dir when applicable (skip for cron/subagent)
+  if (!isMinimalSession) {
+    const memoryNoteDir = path.join(memRoot, "memory");
+    if (fs.existsSync(memoryNoteDir)) {
+      const dailyFiles = fs.readdirSync(memoryNoteDir).filter((f) => f.endsWith(".md"));
+      const memLines = [];
+      if (dailyFiles.length > 0) {
+        memLines.push(`${dailyFiles.length} daily memory file(s) available. Use memory_search to find past context.`);
+      }
+      if (agentId) {
+        memLines.push(`Memory directory: ${memRoot}`);
+        memLines.push(`Write MEMORY.md and memory/*.md files here to persist notes across sessions.`);
+      }
+      if (memLines.length > 0) {
+        sections.push(`\n## Memory\n${memLines.join("\n")}`);
+      }
+    } else if (agentId) {
+      sections.push(`\n## Memory\nMemory directory: ${memRoot}\nWrite MEMORY.md and memory/*.md files here to persist notes across sessions.`);
     }
-    if (agentId) {
-      memLines.push(`Memory directory: ${memRoot}`);
-      memLines.push(`Write MEMORY.md and memory/*.md files here to persist notes across sessions.`);
-    }
-    if (memLines.length > 0) {
-      sections.push(`\n## Memory\n${memLines.join("\n")}`);
-    }
-  } else if (agentId) {
-    sections.push(`\n## Memory\nMemory directory: ${memRoot}\nWrite MEMORY.md and memory/*.md files here to persist notes across sessions.`);
   }
 
-  // Inject skills (optional — don't break system prompt if skills fail)
-  if (skillsConfig?.enabled !== false) {
+  // Inject skills (optional — skip for cron/subagent sessions)
+  if (skillsConfig?.enabled !== false && !isMinimalSession) {
     try {
       let skills = loadSkills();
       const denySet = new Set(skillsConfig?.deny ?? []);

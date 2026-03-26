@@ -25,6 +25,9 @@ import { listSkillNames } from "../extensions/skills.js";
 import { classifyError } from "../runtime/retry.js";
 import { log as slog } from "../core/log.js";
 import { transcribe } from "./transcribe.js";
+import { detectClaudeCode, startTerminal, endTerminal, hasTerminal, isTerminalBusy, handleTerminalMessage, expandHome, updateWorkDir, getTerminalSessionId, getTerminalWorkDir, getTerminalModel, setTerminalModel, listClaudeSessions } from "./terminal.js";
+import { startBrowse, handleBrowseCallback } from "./dir-browser.js";
+import os from "node:os";
 
 export async function setupAgentBot(
   agentId: string,
@@ -103,6 +106,8 @@ export async function setupAgentBot(
     { command: "brief", description: "Toggle brief response mode" },
     { command: "compact", description: "Force compaction of chat history" },
     { command: "voice", description: "Voice transcription info" },
+    { command: "claudecode", description: "Claude Code — start, stop, sessions" },
+    { command: "workdir", description: "Change working directory" },
   ]).catch(() => {});
 
   /** Check if userId is allowed for this agent (in-memory + file fallback) */
@@ -461,6 +466,139 @@ export async function setupAgentBot(
     await ctx.reply(`Removed MCP server: ${name}`);
   });
 
+  // ─── Terminal mode: Claude Code via CLI ──────────────────────────
+
+  // ─── /cc — Claude Code menu ────────────────────────────────────────
+
+  function ccResolveWorkDir(): string {
+    const config = getConfig();
+    const agentConfig = config.agents[agentId];
+    return agentConfig?.workDir ? expandHome(agentConfig.workDir) : os.homedir() + "/Desktop";
+  }
+
+  b.command("claudecode", async (ctx) => {
+    const detection = detectClaudeCode();
+    if (!detection.found) {
+      await ctx.reply("Claude Code not found. Install: npm i -g @anthropic-ai/claude-code");
+      return;
+    }
+
+    if (hasTerminal(ctx.chat.id)) {
+      // Active session — show status + options
+      const sessionId = getTerminalSessionId(ctx.chat.id) ?? "none";
+      const workDir = getTerminalWorkDir(ctx.chat.id) ?? "?";
+      const model = getTerminalModel(ctx.chat.id) ?? "default";
+      const home = os.homedir();
+      const displayDir = workDir.startsWith(home) ? "~" + workDir.slice(home.length) : workDir;
+
+      const kb = new InlineKeyboard()
+        .text("New Session", "cc:new").text("Stop", "cc:stop").row()
+        .text("Model", "cc:model").text("Sessions", "cc:sessions").row()
+        .text("Work Dir", "cc:workdir");
+
+      await ctx.reply(
+        `Claude Code active\n` +
+        `Session: ${sessionId.slice(0, 8)}...\n` +
+        `Model: ${model}\n` +
+        `Dir: ${displayDir}`,
+        { reply_markup: kb },
+      );
+    } else {
+      // Not active — show start options
+      const kb = new InlineKeyboard()
+        .text("Start", "cc:start").text("Resume Session", "cc:sessions").row()
+        .text("Work Dir", "cc:workdir");
+
+      await ctx.reply(
+        `Claude Code (${detection.version ?? ""})\nDir: ${ccResolveWorkDir().replace(os.homedir(), "~")}`,
+        { reply_markup: kb },
+      );
+    }
+  });
+
+  b.command("workdir", async (ctx) => {
+    const config = getConfig();
+    const agentConfig = config.agents[agentId];
+    const currentDir = agentConfig?.workDir
+      ? expandHome(agentConfig.workDir)
+      : os.homedir();
+
+    await startBrowse(ctx.chat.id, ctx.api, currentDir, (selectedDir) => {
+      // Save to config
+      const agents = { ...config.agents };
+      agents[agentId] = { ...agents[agentId], workDir: selectedDir };
+      saveConfig({ agents });
+
+      // Update active terminal session if any
+      if (hasTerminal(ctx.chat.id)) {
+        updateWorkDir(ctx.chat.id, selectedDir);
+      }
+    });
+  });
+
+  async function handleTerminalIncoming(ctx: any) {
+    const chatId = ctx.chat.id;
+    const text = stripMention(ctx.message.text, botInfo.username);
+    if (!text) return;
+
+    if (isTerminalBusy(chatId)) {
+      await ctx.reply("Claude Code is busy. Wait for the current response.");
+      return;
+    }
+
+    const draft = createDraftStream(chatId, ctx.api);
+    let pendingText = "";
+
+    const setReaction = async (emoji: string) => {
+      try {
+        const reactions = emoji ? [{ type: "emoji" as const, emoji: emoji as any }] : [];
+        await ctx.api.setMessageReaction(chatId, ctx.message.message_id, reactions);
+      } catch {}
+    };
+
+    try {
+      await setReaction("eyes");
+      await ctx.replyWithChatAction("typing");
+
+      const result = await handleTerminalMessage(chatId, text, (event) => {
+        if (event.type === "text_delta" && event.text) {
+          pendingText += event.text;
+          draft.update(pendingText);
+        } else if (event.type === "thinking_start") {
+          setReaction("thought_balloon").catch(() => {});
+        } else if (event.type === "tool_use") {
+          setReaction("wrench").catch(() => {});
+        }
+      });
+
+      const response = result.response || "(no response)";
+      pendingText = response;
+      draft.update(response);
+      await draft.flush();
+
+      const streamMsgId = draft.getMessageId();
+      if (streamMsgId && response.length > 4096) {
+        try { await ctx.api.deleteMessage(chatId, streamMsgId); } catch {}
+        await sendChunked(ctx, response);
+      } else if (!streamMsgId) {
+        await sendChunked(ctx, response);
+      }
+
+      await setReaction("");
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      slog.error("terminal", "Claude Code failed", { chatId, error: errMsg });
+      const streamMsgId = draft.getMessageId();
+      if (streamMsgId) {
+        try { await ctx.api.editMessageText(chatId, streamMsgId, `Error: ${errMsg}`); }
+        catch { await ctx.reply(`Error: ${errMsg}`); }
+      } else {
+        await ctx.reply(`Error: ${errMsg}`);
+      }
+      await setReaction("");
+    }
+  }
+
   // ─── Admin-only commands: redirect to admin bot ──────────────────
 
   const adminRedirect = async (ctx: any) => {
@@ -641,10 +779,106 @@ export async function setupAgentBot(
       await ctx.answerCallbackQuery();
       const value = data.split(":").slice(2).join(":");
       await advanceWizard(ctx.chat!.id, value, b);
+    } else if (data.startsWith("browse:")) {
+      await ctx.answerCallbackQuery();
+      const value = data.slice("browse:".length);
+      await handleBrowseCallback(ctx.chat!.id, value, ctx.api);
+    } else if (data.startsWith("cc:")) {
+      await ctx.answerCallbackQuery();
+      const action = data.slice("cc:".length);
+      const chatId = ctx.chat!.id;
+
+      if (action === "start") {
+        startTerminal(chatId, ccResolveWorkDir());
+        await ctx.editMessageText("Claude Code started. Send messages.");
+      } else if (action === "stop") {
+        endTerminal(chatId);
+        await ctx.editMessageText("Claude Code stopped.");
+      } else if (action === "new") {
+        // Start fresh session (clear old sessionId)
+        startTerminal(chatId, ccResolveWorkDir());
+        await ctx.editMessageText("New Claude Code session started.");
+      } else if (action === "sessions") {
+        const sessions = listClaudeSessions();
+        if (sessions.length === 0) {
+          await ctx.editMessageText("No previous Claude Code sessions found.");
+          return;
+        }
+        const kb = new InlineKeyboard();
+        for (const s of sessions) {
+          const label = s.name ?? s.id.slice(0, 8);
+          kb.text(label, `cc:resume:${s.id}`).row();
+        }
+        kb.text("⬅ Back", "cc:back");
+        await ctx.editMessageText("Select a session to resume:", { reply_markup: kb });
+      } else if (action === "workdir") {
+        const config = getConfig();
+        const agentConfig = config.agents[agentId];
+        const currentDir = agentConfig?.workDir
+          ? expandHome(agentConfig.workDir)
+          : os.homedir();
+        await startBrowse(chatId, ctx.api, currentDir, (selectedDir) => {
+          const agents = { ...config.agents };
+          agents[agentId] = { ...agents[agentId], workDir: selectedDir };
+          saveConfig({ agents });
+          if (hasTerminal(chatId)) {
+            updateWorkDir(chatId, selectedDir);
+          }
+        });
+      } else if (action === "model") {
+        const current = getTerminalModel(chatId) ?? "default";
+        const kb = new InlineKeyboard()
+          .text("Sonnet", "cc:setmodel:sonnet").text("Opus", "cc:setmodel:opus").row()
+          .text("Haiku", "cc:setmodel:haiku").text("Default", "cc:setmodel:__default__").row()
+          .text("⬅ Back", "cc:back");
+        await ctx.editMessageText(`Current model: ${current}\n\nSelect model:`, { reply_markup: kb });
+      } else if (action.startsWith("setmodel:")) {
+        const model = action.slice("setmodel:".length);
+        if (model === "__default__") {
+          setTerminalModel(chatId, undefined);
+          await ctx.editMessageText("Model reset to default.");
+        } else {
+          setTerminalModel(chatId, model);
+          await ctx.editMessageText(`Model set to: ${model}`);
+        }
+      } else if (action === "back") {
+        // Re-show main menu
+        if (hasTerminal(chatId)) {
+          const model = getTerminalModel(chatId) ?? "default";
+          const kb = new InlineKeyboard()
+            .text("New Session", "cc:new").text("Stop", "cc:stop").row()
+            .text("Model", "cc:model").text("Sessions", "cc:sessions").row()
+            .text("Work Dir", "cc:workdir");
+          await ctx.editMessageText(`Claude Code active (${model})`, { reply_markup: kb });
+        } else {
+          const kb = new InlineKeyboard()
+            .text("Start", "cc:start").text("Resume Session", "cc:sessions").row()
+            .text("Work Dir", "cc:workdir");
+          await ctx.editMessageText("Claude Code", { reply_markup: kb });
+        }
+      } else if (action.startsWith("resume:")) {
+        const sessionId = action.slice("resume:".length);
+        startTerminal(chatId, ccResolveWorkDir(), sessionId);
+        await ctx.editMessageText(`Resumed session ${sessionId.slice(0, 8)}... Send messages.`);
+      }
     }
   });
 
   b.on("message:text", async (ctx) => {
+    // Claude Code mode: manual (/cc) or config-driven (mode: claude-code)
+    if (hasTerminal(ctx.chat.id)) {
+      await handleTerminalIncoming(ctx);
+      return;
+    }
+    const agentCfg = getConfig().agents[agentId];
+    if (agentCfg?.mode === "claude-code") {
+      // Auto-start terminal session for claude-code agents
+      const workDir = agentCfg.workDir ? expandHome(agentCfg.workDir) : os.homedir() + "/Desktop";
+      startTerminal(ctx.chat.id, workDir);
+      await handleTerminalIncoming(ctx);
+      return;
+    }
+
     // Advance active wizard with text input
     if (hasActiveWizard(ctx.chat.id)) {
       const consumed = await advanceWizard(ctx.chat.id, ctx.message.text, b);

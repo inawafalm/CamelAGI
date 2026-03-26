@@ -13,6 +13,7 @@
 import type { Config } from "../core/config.js";
 import { runAgent } from "../agent.js";
 import { loadMessages, saveMessage } from "../session.js";
+import { buildSystemPrompt } from "../system-prompt.js";
 import { paths } from "../core/config.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -169,8 +170,10 @@ export function startCronJob(
     active.running = true;
 
     try {
+      // Build a cron-specific system prompt (minimal bootstrap: AGENTS.md + TOOLS.md only)
+      const cronPrompt = buildSystemPrompt(config.systemPrompt, config.skills, undefined, "cron");
       const history = loadMessages(sid);
-      const result = await runAgent(config.apiKey!, config.model, systemPrompt, history, job.prompt, {
+      const result = await runAgent(config.apiKey!, config.model, cronPrompt, history, job.prompt, {
         maxTurns: opts?.maxTurns ?? 10,
         timeoutMs: opts?.timeoutMs ?? 120_000,
         provider: config.provider,
@@ -349,9 +352,10 @@ export async function runJobNow(id: string): Promise<string> {
 async function runJobWithConfig(job: CronJob): Promise<string> {
   if (!serverConfig) throw new Error("Server not running");
 
+  const cronPrompt = buildSystemPrompt(serverConfig.systemPrompt, serverConfig.skills, undefined, "cron");
   const sid = job.session ?? `cron-${job.id}`;
   const history = loadMessages(sid);
-  const result = await runAgent(serverConfig.apiKey!, serverConfig.model, serverSystemPrompt, history, job.prompt, {
+  const result = await runAgent(serverConfig.apiKey!, serverConfig.model, cronPrompt, history, job.prompt, {
     maxTurns: 10,
     timeoutMs: 120_000,
     provider: serverConfig.provider,

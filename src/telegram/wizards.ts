@@ -227,7 +227,7 @@ function buildModelSteps(getConfig: () => Config): WizardStep[] {
       id: "model",
       prompt: `Model (current: ${config.model}):`,
       columns: 1,
-      skip: (data) => data.useRecommended === "__recommended__",
+      skip: (data) => data.mode === "claude-code" || data.useRecommended === "__recommended__",
       options: [
         { label: `✓ ${config.model} (default)`, value: "__default__" },
         ...preset.models
@@ -257,7 +257,7 @@ function buildModelSteps(getConfig: () => Config): WizardStep[] {
       id: "modelProvider",
       prompt: `Model (current: ${config.model}):\n\nPick a provider or type a custom model name:`,
       columns: 2,
-      skip: (data) => data.useRecommended === "__recommended__",
+      skip: (data) => data.mode === "claude-code" || data.useRecommended === "__recommended__",
       options: [
         { label: `✓ ${config.model} (default)`, value: "__default__" },
         ...providerNames.map(p => ({
@@ -273,7 +273,7 @@ function buildModelSteps(getConfig: () => Config): WizardStep[] {
         return `${p} models:`;
       },
       columns: 1,
-      skip: (data) => data.modelProvider === "__default__" || data.useRecommended === "__recommended__",
+      skip: (data) => data.mode === "claude-code" || data.modelProvider === "__default__" || data.useRecommended === "__recommended__",
       options: (data) => {
         const selected = data.modelProvider;
         const models = groups.get(selected) ?? [];
@@ -299,8 +299,18 @@ export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: (
         validate: (value) => value ? null : "Name cannot be empty.",
       },
       {
+        id: "mode",
+        prompt: "How should this agent work?",
+        columns: 1,
+        options: [
+          { label: "LLM (API-based)", value: "llm" },
+          { label: "Claude Code (local CLI)", value: "claude-code" },
+        ],
+      },
+      {
         id: "template",
         prompt: "Agent personality template:",
+        skip: (data) => data.mode === "claude-code",
         columns: 1,
         options: Object.entries(SOUL_TEMPLATES).map(([key, t]) => ({
           label: t.label,
@@ -310,7 +320,7 @@ export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: (
       {
         id: "descriptionCustom",
         prompt: "What does this agent do? (one line, goes into SOUL.md):",
-        skip: (data) => data.template !== "custom",
+        skip: (data) => data.mode === "claude-code" || data.template !== "custom",
       },
       {
         id: "useRecommended",
@@ -318,7 +328,7 @@ export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: (
           const t = SOUL_TEMPLATES[data.template];
           return `Recommended model: ${t?.model}\n\nUse this model?`;
         },
-        skip: (data) => !SOUL_TEMPLATES[data.template]?.model,
+        skip: (data) => data.mode === "claude-code" || !SOUL_TEMPLATES[data.template]?.model,
         options: [
           { label: "✓ Use recommended", value: "__recommended__" },
           { label: "Choose different", value: "__choose__" },
@@ -370,6 +380,7 @@ export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: (
       }
 
       const agentConfig: Record<string, unknown> = { name: data.name };
+      if (data.mode === "claude-code") agentConfig.mode = "claude-code";
       if (model) agentConfig.model = model;
       if (data.token && data.token !== "__skip__") {
         agentConfig.telegram = {
@@ -397,11 +408,12 @@ export function createNewAgentWizard(getConfig: () => Config, getSystemPrompt: (
 
       // Send creation summary first
       const dir = agentMemoryDir(id);
+      const modeLabel = data.mode === "claude-code" ? "Claude Code (local CLI)" : `LLM — ${model ?? config.model}`;
       const summary = [
         `Agent created!\n`,
         `Name: ${data.name}`,
         `ID: ${id}`,
-        `Model: ${model ?? config.model} (default)`,
+        `Mode: ${modeLabel}`,
         tokenInfo,
         `\n${dir}`,
       ].filter(Boolean).join("\n");

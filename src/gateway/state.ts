@@ -15,7 +15,9 @@ export interface GatewayState {
   token: string | undefined;
   silent: boolean;
   clients: Set<WebSocket>;
+  watchers: Set<WebSocket>;
   startTime: number;
+  tailscaleUrl?: string;
 }
 
 /** Timing-safe token comparison — prevents timing attacks that leak token info */
@@ -44,6 +46,15 @@ export function broadcast(state: GatewayState, data: unknown) {
   }
 }
 
+/** Send an event to all watcher clients */
+export function notifyWatchers(state: GatewayState, data: unknown) {
+  if (state.watchers.size === 0) return;
+  const json = JSON.stringify(data);
+  for (const ws of state.watchers) {
+    if (ws.readyState === 1) ws.send(json);
+  }
+}
+
 export function logMessage(
   state: GatewayState,
   channel: string,
@@ -51,6 +62,16 @@ export function logMessage(
   sessionId: string,
   text: string,
 ) {
+  // Notify watchers
+  notifyWatchers(state, {
+    type: "watch.message",
+    channel,
+    direction,
+    sessionId,
+    text: text.slice(0, 500),
+    ts: Date.now(),
+  });
+
   if (state.silent) return;
   const arrow = direction === "in" ? `\x1b[36m→\x1b[0m` : `\x1b[32m←\x1b[0m`;
   const tag = `\x1b[90m[${channel}:${sessionId.slice(0, 16)}]\x1b[0m`;

@@ -66,10 +66,11 @@ After setup, use `/newagent` in Telegram to create your first AI agent.
 
 ## Features
 
-> 3 channels, 18 CLI commands, 10 built-in tools — terminal, Telegram, or Discord.
+> 4 channels, 18 CLI commands, 10 built-in tools — terminal, Telegram, Discord, or Claude Code.
 
 | | Feature | Description |
 |---|---|---|
+| 💻 | **Claude Code via Telegram** | Run Claude Code on your local machine, remote-controlled from Telegram. `/claudecode` to start — browse directories, switch models, manage sessions. Full Claude Code power from your phone |
 | 🤖 | **Telegram — Admin Bot** | BotFather for AI agents. Create, configure, clone, and manage agents entirely from Telegram — instant commands, zero tokens |
 | 💬 | **Telegram — Agent Bots** | Each agent gets its own Telegram bot. Message it like any chat — it runs tools, reads files, remembers context |
 | 🎮 | **Discord Bots** | Per-agent Discord bots with mention-only mode, role filtering, and channel restrictions |
@@ -93,7 +94,19 @@ After setup, use `/newagent` in Telegram to create your first AI agent.
 
 ## Channels
 
-CamelAGI runs across three channels — all sharing the same agent runtime, tools, and memory.
+CamelAGI runs across four channels — all sharing the same agent runtime, tools, and memory.
+
+### Claude Code via Telegram
+
+Run Claude Code on your local machine, controlled from your phone. Type `/claudecode` in any agent bot to start — or create an agent with `mode: claude-code` for always-on mode.
+
+- **Directory browser** — navigate your filesystem from Telegram inline buttons
+- **Session management** — start, stop, resume previous sessions
+- **Model switching** — switch between Sonnet, Opus, Haiku on the fly
+- **Real-time streaming** — responses stream back to Telegram as Claude Code generates them
+- **Persistent sessions** — conversations carry across messages via `--resume`
+
+Requires Claude Code installed (`npm i -g @anthropic-ai/claude-code`) and logged in (`claude login`).
 
 ### Telegram
 
@@ -176,6 +189,9 @@ camel <command> [options]
 | | `setup` | Interactive setup (re-run anytime) |
 | | `chat` | Interactive terminal UI |
 | **Server** | `serve` | Start the gateway server |
+| | `watch` | Monitor a running gateway in real-time |
+| | `connect` | Connect TUI to a remote gateway |
+| | `tailscale` | Tailscale remote access setup |
 | | `daemon` | Manage launchd daemon (install/uninstall/status) |
 | | `logs` | Tail server request log |
 | | `status` | System health overview |
@@ -192,6 +208,8 @@ camel <command> [options]
 | | `update` | Update to the latest version |
 
 One-shot mode: `camel "your question"` — spins up an ephemeral gateway and answers inline.
+
+Remote one-shot: `CAMELAGI_REMOTE_URL=http://server:18305 camel "your question"` — sends to remote gateway.
 
 <br>
 

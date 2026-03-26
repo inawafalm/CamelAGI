@@ -1,6 +1,7 @@
 // CSRF protection — blocks cross-origin mutation requests from browsers
 
 import type { Request, Response, NextFunction } from "express";
+import { checkAuth, type GatewayState } from "./state.js";
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -17,10 +18,19 @@ function isLoopbackOrigin(raw: string): boolean {
 /**
  * Blocks browser-originated cross-site mutation requests.
  * Non-browser clients (curl, Node fetch) that don't send Origin/Sec-Fetch-Site pass through.
+ *
+ * When token auth is configured and the request carries a valid Bearer token,
+ * CSRF checks are bypassed — if the client has the token, it's not a CSRF attack.
  */
-export function csrfProtection() {
+export function csrfProtection(state: GatewayState) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (SAFE_METHODS.has(req.method)) { next(); return; }
+
+    // Token-authenticated requests bypass CSRF — legitimate API client, not browser CSRF
+    if (state.token && checkAuth(state, req.headers.authorization)) {
+      next();
+      return;
+    }
 
     // Sec-Fetch-Site: if present, only allow same-origin / same-site / none
     const fetchSite = req.headers["sec-fetch-site"] as string | undefined;

@@ -24,11 +24,16 @@ import "./cli/cmd-uninstall.js";
 import "./cli/cmd-update.js";
 import "./cli/cmd-bootstrap.js";
 import "./cli/cmd-status.js";
+import "./cli/cmd-connect.js";
+import "./cli/cmd-tailscale.js";
+import "./cli/cmd-watch.js";
 
 const args = process.argv.slice(2);
 
-// Non-blocking update check on every invocation
-printUpdateNotice();
+// Non-blocking update check on every invocation (skip if already running update)
+if (args[0] !== "update") {
+  printUpdateNotice();
+}
 
 // camelagi --version / -v
 if (args[0] === "--version" || args[0] === "-v") {
@@ -53,7 +58,7 @@ if (args[0] === "--help" || args[0] === "-h" || args.length === 0) {
 
   const categorize: Record<string, string> = {
     bootstrap: "Getting Started", setup: "Getting Started", chat: "Getting Started",
-    serve: "Server", daemon: "Server", logs: "Server", status: "Server",
+    serve: "Server", daemon: "Server", logs: "Server", status: "Server", connect: "Server", tailscale: "Server", watch: "Server",
     agents: "Agents & Sessions", soul: "Agents & Sessions", sessions: "Agents & Sessions", pairing: "Agents & Sessions",
     config: "Configuration", cron: "Configuration",
     doctor: "Maintenance", reset: "Maintenance", install: "Maintenance", uninstall: "Maintenance",
@@ -96,37 +101,66 @@ if (cmd) {
   }
   await cmd.run(args.slice(1));
 } else if (args[0] && !args[0].startsWith("-")) {
-  // camelagi "your message" — one-shot mode via embedded gateway
+  // camelagi "your message" — one-shot mode
   const message = args.join(" ");
 
-  const { startServer } = await import("./serve.js");
-  const handle = await startServer({
-    port: 0,
-    silent: true,
-    channels: false,
-    boot: false,
-    cron: false,
-  });
-
-  try {
-    const res = await fetch(`http://127.0.0.1:${handle.port}/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, session: `oneshot-${Date.now()}` }),
-    });
-
-    const data = await res.json() as { response?: string; error?: string };
-
-    if (res.ok) {
-      console.log(data.response);
-    } else {
-      console.error(`Error: ${data.error}`);
+  // Remote one-shot: if CAMELAGI_REMOTE_URL is set, send to remote gateway
+  const remoteUrl = process.env.CAMELAGI_REMOTE_URL;
+  if (remoteUrl) {
+    const token = process.env.CAMELAGI_TOKEN;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const baseUrl = remoteUrl
+      .replace(/^ws:\/\//, "http://")
+      .replace(/^wss:\/\//, "https://");
+    try {
+      const res = await fetch(`${baseUrl}/chat`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ message, session: `oneshot-${Date.now()}` }),
+      });
+      const data = await res.json() as { response?: string; error?: string };
+      if (res.ok) {
+        console.log(data.response);
+      } else {
+        console.error(`Error: ${data.error}`);
+        process.exit(1);
+      }
+    } catch (err: unknown) {
+      console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
     }
-  } catch (err: unknown) {
-    console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
-  } finally {
-    await handle.close();
+  } else {
+    // Local one-shot: spin up embedded gateway
+    const { startServer } = await import("./serve.js");
+    const handle = await startServer({
+      port: 0,
+      silent: true,
+      channels: false,
+      boot: false,
+      cron: false,
+    });
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${handle.port}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, session: `oneshot-${Date.now()}` }),
+      });
+
+      const data = await res.json() as { response?: string; error?: string };
+
+      if (res.ok) {
+        console.log(data.response);
+      } else {
+        console.error(`Error: ${data.error}`);
+        process.exit(1);
+      }
+    } catch (err: unknown) {
+      console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    } finally {
+      await handle.close();
+    }
   }
 }

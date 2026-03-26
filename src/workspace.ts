@@ -92,6 +92,37 @@ _This file is yours to evolve. As you learn who you are, update it._
 <!-- Curated long-term memory. The agent reads and updates this file. -->
 `);
   }
+
+  // HEARTBEAT.md — periodic task checklist
+  const heartbeatPath = path.join(dir, "HEARTBEAT.md");
+  if (!fs.existsSync(heartbeatPath)) {
+    fs.writeFileSync(heartbeatPath, TEMPLATES["HEARTBEAT.md"]);
+  }
+
+  // BOOTSTRAP.md — one-time onboarding (only if not already completed)
+  const agentState = readWorkspaceState(agentId);
+  if (!agentState.onboardingCompletedAt && !agentState.bootstrapSeededAt) {
+    const bootstrapPath = path.join(dir, "BOOTSTRAP.md");
+    if (!fs.existsSync(bootstrapPath)) {
+      fs.writeFileSync(bootstrapPath, BOOTSTRAP_TEMPLATE);
+      updateWorkspaceState({ bootstrapSeededAt: new Date().toISOString() }, agentId);
+    }
+  }
+}
+
+// --- Session types for bootstrap filtering ---
+
+export type SessionType = "main" | "cron" | "subagent" | "heartbeat";
+
+const MINIMAL_BOOTSTRAP = new Set(["AGENTS.md", "TOOLS.md"]);
+
+/** Filter bootstrap files based on session type. Cron/subagent get minimal set. */
+export function filterBootstrapFiles(files: BootstrapFile[], sessionType?: SessionType): BootstrapFile[] {
+  if (!sessionType || sessionType === "main") return files;
+  if (sessionType === "heartbeat") {
+    return files.filter((f) => MINIMAL_BOOTSTRAP.has(f.name) || f.name === "HEARTBEAT.md");
+  }
+  return files.filter((f) => MINIMAL_BOOTSTRAP.has(f.name));
 }
 
 // Bootstrap file definitions (injected into system prompt)
@@ -102,6 +133,8 @@ const BOOTSTRAP_FILES = [
   { name: "USER.md", required: false },
   { name: "TOOLS.md", required: false },
   { name: "MEMORY.md", required: false },
+  { name: "HEARTBEAT.md", required: false },
+  { name: "BOOTSTRAP.md", required: false },
 ] as const;
 
 const HEAD_RATIO = 0.7;
@@ -173,7 +206,53 @@ You are CamelAGI, a personal AI assistant.
 <!-- - Project conventions: use pnpm, not npm -->
 <!-- - Preferred languages: TypeScript, Python -->
 `,
+
+  "HEARTBEAT.md": `# Heartbeat Checklist
+
+<!-- This file is read periodically by the agent. -->
+<!-- Add tasks the agent should check on each heartbeat cycle. -->
+<!-- If this file is empty or contains only comments/headers, -->
+<!-- the heartbeat will skip the API call to save tokens. -->
+
+<!-- Example entries: -->
+<!-- - Check for new emails and summarize unread -->
+<!-- - Review calendar for upcoming events today -->
+<!-- - Check project build status -->
+`,
 };
+
+// --- BOOTSTRAP.md template (not in TEMPLATES — seeded conditionally) ---
+
+const BOOTSTRAP_TEMPLATE = `# Welcome to CamelAGI
+
+You are being set up for the first time. This is your onboarding ritual.
+
+## Your Task
+
+Have a conversation with your human to discover:
+
+1. **Their name and how they'd like to be addressed**
+2. **Their timezone and daily rhythm**
+3. **What they'll use you for** (coding, research, life management, etc.)
+4. **Communication preferences** (formal/casual, verbose/concise, proactive/reactive)
+5. **Any boundaries or sensitive topics**
+
+## What to Do
+
+- Start by introducing yourself warmly
+- Ask these questions naturally (not as a checklist)
+- After learning enough, update these files:
+  - **IDENTITY.md** — Set your name, emoji, and vibe
+  - **USER.md** — Record what you learned about your human
+  - **SOUL.md** — Refine your personality based on the conversation
+- Then **delete this BOOTSTRAP.md file** to signal onboarding is complete
+
+## Important
+
+- This file exists only during onboarding
+- Once you delete it, it won't come back
+- Take your time — this first conversation shapes who you'll be
+`;
 
 // --- File operations ---
 
@@ -188,6 +267,16 @@ export function seedWorkspace(): void {
     const filePath = path.join(workspaceDir, name);
     if (!fs.existsSync(filePath)) {
       fs.writeFileSync(filePath, content);
+    }
+  }
+
+  // Seed BOOTSTRAP.md only if onboarding hasn't completed
+  const state = readWorkspaceState();
+  if (!state.onboardingCompletedAt && !state.bootstrapSeededAt) {
+    const bootstrapPath = path.join(workspaceDir, "BOOTSTRAP.md");
+    if (!fs.existsSync(bootstrapPath)) {
+      fs.writeFileSync(bootstrapPath, BOOTSTRAP_TEMPLATE);
+      updateWorkspaceState({ bootstrapSeededAt: new Date().toISOString() });
     }
   }
 
@@ -260,6 +349,9 @@ export function cloneAgentWorkspace(sourceId: string, targetId: string, targetNa
  * USER.md always comes from global (same user across agents).
  */
 export function loadBootstrapFiles(agentId?: string): BootstrapFile[] {
+  // Check if BOOTSTRAP.md was deleted (onboarding completed)
+  checkOnboardingCompletion(agentId);
+
   const files: BootstrapFile[] = [];
   const agentDir = agentId ? agentMemoryDir(agentId) : null;
 
@@ -300,4 +392,77 @@ export function loadBootstrapFiles(agentId?: string): BootstrapFile[] {
   }
 
   return files;
+}
+
+// --- Heartbeat helpers ---
+
+/** Check if HEARTBEAT.md content is effectively empty (only whitespace, headers, HTML comments, empty list items) */
+export function isHeartbeatEmpty(content: string | undefined | null): boolean {
+  if (!content || typeof content !== "string") return true;
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (/^#+(\s|$)/.test(trimmed)) continue;
+    if (/^<!--.*-->$/.test(trimmed)) continue;
+    if (/^[-*+]\s*(\[[\sXx]?\]\s*)?$/.test(trimmed)) continue;
+    return false;
+  }
+  return true;
+}
+
+// --- Onboarding state tracking ---
+
+const WORKSPACE_STATE_VERSION = 1;
+
+interface WorkspaceState {
+  version: number;
+  bootstrapSeededAt?: string;
+  onboardingCompletedAt?: string;
+}
+
+function resolveStatePath(agentId?: string): string {
+  return path.join(agentMemoryDir(agentId), ".state", "workspace-state.json");
+}
+
+export function readWorkspaceState(agentId?: string): WorkspaceState {
+  const statePath = resolveStatePath(agentId);
+  try {
+    if (!fs.existsSync(statePath)) return { version: WORKSPACE_STATE_VERSION };
+    const raw = JSON.parse(fs.readFileSync(statePath, "utf-8"));
+    return {
+      version: WORKSPACE_STATE_VERSION,
+      bootstrapSeededAt: typeof raw.bootstrapSeededAt === "string" ? raw.bootstrapSeededAt : undefined,
+      onboardingCompletedAt: typeof raw.onboardingCompletedAt === "string" ? raw.onboardingCompletedAt : undefined,
+    };
+  } catch {
+    return { version: WORKSPACE_STATE_VERSION };
+  }
+}
+
+export function updateWorkspaceState(
+  updates: Partial<Omit<WorkspaceState, "version">>,
+  agentId?: string,
+): void {
+  const statePath = resolveStatePath(agentId);
+  const current = readWorkspaceState(agentId);
+  const merged = { ...current, ...updates };
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.writeFileSync(statePath, JSON.stringify(merged, null, 2) + "\n");
+}
+
+export function isOnboardingCompleted(agentId?: string): boolean {
+  const state = readWorkspaceState(agentId);
+  return typeof state.onboardingCompletedAt === "string" && state.onboardingCompletedAt.length > 0;
+}
+
+/** Detect when BOOTSTRAP.md has been deleted and mark onboarding as completed */
+function checkOnboardingCompletion(agentId?: string): void {
+  const state = readWorkspaceState(agentId);
+  if (state.bootstrapSeededAt && !state.onboardingCompletedAt) {
+    const dir = agentMemoryDir(agentId);
+    const bootstrapPath = path.join(dir, "BOOTSTRAP.md");
+    if (!fs.existsSync(bootstrapPath)) {
+      updateWorkspaceState({ onboardingCompletedAt: new Date().toISOString() }, agentId);
+    }
+  }
 }

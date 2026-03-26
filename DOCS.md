@@ -7,6 +7,7 @@
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+- [Claude Code via Telegram](#claude-code-via-telegram)
 - [Architecture](#architecture)
 - [Configuration](#configuration)
 - [Agent System](#agent-system)
@@ -48,6 +49,61 @@ camelagi "hello world"  # One-shot message
 ```
 
 After bootstrap, the admin Telegram bot is live. Message it to start the pairing flow.
+
+---
+
+## Claude Code via Telegram
+
+Run Claude Code on your local machine, remote-controlled from Telegram. CamelAGI spawns the `claude` CLI as a subprocess and bridges messages between Telegram and your local machine.
+
+### Prerequisites
+
+- Claude Code installed: `npm i -g @anthropic-ai/claude-code`
+- Logged in: `claude login`
+
+### Using `/claudecode`
+
+In any agent bot, type `/claudecode` to open the control menu:
+
+| Action | Description |
+|--------|-------------|
+| **Start** | Begin a new Claude Code session |
+| **Stop** | End the active session |
+| **New Session** | Start fresh (clear session history) |
+| **Sessions** | List and resume previous sessions |
+| **Model** | Switch between Sonnet, Opus, Haiku |
+| **Work Dir** | Browse and select working directory |
+
+Once started, every message you send goes directly to Claude Code.
+
+### Per-Agent Mode
+
+Create an agent that always uses Claude Code:
+
+```yaml
+agents:
+  coder:
+    name: "Coder"
+    mode: claude-code
+    workDir: ~/projects/my-app
+    telegram:
+      botToken: "YOUR_BOT_TOKEN"
+      allowedUsers: [YOUR_TELEGRAM_ID]
+```
+
+Or use `/newagent` in Telegram and select "Claude Code (local CLI)" as the mode.
+
+### Directory Browser
+
+The `/workdir` command opens an interactive file browser in Telegram using inline buttons. Navigate folders, go back, and select — no typing paths.
+
+### How It Works
+
+1. Message arrives on Telegram
+2. CamelAGI spawns: `claude -p "message" --output-format stream-json --resume <session_id>`
+3. Claude Code runs locally with full filesystem access
+4. Response streams back to Telegram via DraftStream (real-time edits)
+5. Session ID stored for conversation persistence
 
 ---
 

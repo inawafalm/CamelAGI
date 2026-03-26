@@ -27,14 +27,15 @@ const schema = z.object({
   maxTurns: z.number().default(25),
   timeoutSeconds: z.number().default(300),
   serve: z.object({
-    port: z.number().default(18789),
+    port: z.number().default(18305),
     host: z.string().default("127.0.0.1"),
     token: z.string().optional(),
     rateLimit: z.object({
       windowMs: z.number().default(60_000),
       max: z.number().default(60),
     }).default(() => ({ windowMs: 60_000, max: 60 })),
-  }).default(() => ({ port: 18789, host: "127.0.0.1", rateLimit: { windowMs: 60_000, max: 60 } })),
+    tailscale: z.enum(["off", "serve", "funnel"]).default("off"),
+  }).default(() => ({ port: 18305, host: "127.0.0.1", rateLimit: { windowMs: 60_000, max: 60 }, tailscale: "off" as const })),
   telegram: z.object({
     botToken: z.string().optional(),
     allowedUsers: z.array(z.number()).default([]),
@@ -122,6 +123,8 @@ const schema = z.object({
   agents: z.record(z.string(), z.object({
     name: z.string(),
     admin: z.boolean().default(false),
+    mode: z.enum(["llm", "claude-code"]).default("llm").optional(),
+    workDir: z.string().optional(),
     model: z.string().optional(),
     systemPrompt: z.string().optional(),
     thinking: z.enum(["off", "low", "medium", "high"]).optional(),
@@ -171,6 +174,13 @@ const schema = z.object({
     }).optional(),
   })).default(() => ({})),
   boot: z.boolean().default(true),
+  heartbeat: z.object({
+    enabled: z.boolean().default(false),
+    interval: z.string().default("30m"),
+    prompt: z.string().default(
+      "Read HEARTBEAT.md in your workspace. Follow any tasks listed. If nothing needs attention, reply HEARTBEAT_OK.",
+    ),
+  }).default(() => ({ enabled: false, interval: "30m", prompt: "Read HEARTBEAT.md in your workspace. Follow any tasks listed. If nothing needs attention, reply HEARTBEAT_OK." })),
   cron: z.array(z.object({
     id: z.string(),
     name: z.string().default(""),

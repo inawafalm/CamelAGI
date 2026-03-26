@@ -96,6 +96,8 @@ async function configureAgent(p: typeof import("@clack/prompts"), config: Config
   const action = await p.select({
     message: `${agent.name} (${agentId})`,
     options: [
+      { value: "mode", label: "Mode", hint: agent.mode ?? "llm" },
+      { value: "workDir", label: "Working Dir", hint: agent.workDir ?? "(default)" },
       { value: "model", label: "Model", hint: agent.model ?? config.model },
       { value: "name", label: "Name", hint: agent.name },
       { value: "thinking", label: "Thinking", hint: String(agent.thinking ?? config.thinking) },
@@ -109,6 +111,33 @@ async function configureAgent(p: typeof import("@clack/prompts"), config: Config
   const agents = { ...config.agents };
 
   switch (action) {
+    case "mode": {
+      const mode = await p.select({
+        message: "Agent mode:",
+        options: [
+          { value: "llm", label: "LLM (API-based)", hint: "Normal CamelAGI agent" },
+          { value: "claude-code", label: "Claude Code", hint: "Local CLI subprocess" },
+        ],
+      });
+      if (p.isCancel(mode)) return;
+      agents[agentId] = { ...agent, mode: mode as "llm" | "claude-code" };
+      saveConfig({ agents });
+      p.log.success(`Mode set to: ${mode}`);
+      break;
+    }
+    case "workDir": {
+      const dir = await p.text({ message: "Working directory:", initialValue: agent.workDir ?? "" });
+      if (p.isCancel(dir)) return;
+      if (dir) {
+        agents[agentId] = { ...agent, workDir: dir as string };
+      } else {
+        const { workDir: _, ...rest } = agent;
+        agents[agentId] = rest as typeof agent;
+      }
+      saveConfig({ agents });
+      p.log.success(dir ? `Working dir set to: ${dir}` : "Working dir cleared (using default)");
+      break;
+    }
     case "model": {
       const model = await p.text({ message: "Model:", initialValue: agent.model ?? config.model });
       if (p.isCancel(model)) return;
@@ -223,8 +252,20 @@ async function createAgent(p: typeof import("@clack/prompts"), config: Config) {
     return;
   }
 
-  const model = await p.text({ message: "Model:", initialValue: config.model });
-  if (p.isCancel(model)) return;
+  const mode = await p.select({
+    message: "Agent mode:",
+    options: [
+      { value: "llm", label: "LLM (API-based)" },
+      { value: "claude-code", label: "Claude Code (local CLI)" },
+    ],
+  });
+  if (p.isCancel(mode)) return;
+
+  let model: string | symbol = config.model;
+  if (mode !== "claude-code") {
+    model = await p.text({ message: "Model:", initialValue: config.model });
+    if (p.isCancel(model)) return;
+  }
 
   const wantTelegram = await p.confirm({ message: "Add Telegram bot?" });
   let telegramConfig: Config["agents"][string]["telegram"] | undefined;
@@ -240,6 +281,7 @@ async function createAgent(p: typeof import("@clack/prompts"), config: Config) {
   const agents = { ...config.agents };
   agents[id] = {
     name: name as string,
+    ...(mode === "claude-code" ? { mode: "claude-code" as const } : {}),
     ...(model !== config.model ? { model: model as string } : {}),
     ...(telegramConfig ? { telegram: telegramConfig } : {}),
   } as typeof agents[string];

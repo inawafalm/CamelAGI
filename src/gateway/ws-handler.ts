@@ -16,7 +16,7 @@ import { errorMessage } from "../core/errors.js";
 import { submitDecision, type ApprovalDecision } from "../extensions/approvals.js";
 import type { Config } from "../core/config.js";
 import type { GatewayState } from "./state.js";
-import { checkAuth, send, logMessage, parseTokenFromUrl } from "./state.js";
+import { checkAuth, send, logMessage, notifyWatchers, parseTokenFromUrl } from "./state.js";
 
 export function registerWsHandler(wss: WebSocketServer, state: GatewayState): void {
   wss.on("connection", (ws, req) => {
@@ -65,9 +65,14 @@ export function registerWsHandler(wss: WebSocketServer, state: GatewayState): vo
                     sdkSessionId = event.sessionId;
                   }
                   send(ws, event);
+                  // Broadcast key events to watchers
+                  if (["tool_call", "tool_result", "thinking", "subagent_start", "subagent_done", "stream_text"].includes(event.type)) {
+                    notifyWatchers(state, { ...event as Record<string, unknown>, _session: sid });
+                  }
                 },
                 onRetry: (attempt, kind) => {
                   send(ws, { type: "retry", attempt, kind });
+                  notifyWatchers(state, { type: "watch.retry", session: sid, attempt, kind, ts: Date.now() });
                 },
                 onCompact: (oldCount, newCount) => {
                   send(ws, { type: "compacted", oldCount, newCount });
@@ -80,6 +85,7 @@ export function registerWsHandler(wss: WebSocketServer, state: GatewayState): vo
                 if (result.response) {
                   logMessage(state, "tui", "out", sid, result.response);
                 }
+                notifyWatchers(state, { type: "watch.done", session: sid, runId: result.runId, ts: Date.now() });
                 if (result.sdkSessionId) {
                   sdkSessionId = result.sdkSessionId;
                 }
@@ -184,6 +190,26 @@ export function registerWsHandler(wss: WebSocketServer, state: GatewayState): vo
             }
             break;
 
+          case "watch": {
+            // Subscribe this client as a watcher (observer mode)
+            state.watchers.add(ws);
+            // Send current state snapshot
+            const sessions = listSessions();
+            send(ws, {
+              type: "watch.snapshot",
+              uptime: Math.floor((Date.now() - state.startTime) / 1000),
+              sessions,
+              activeRuns: getActiveRunCount(),
+              lanes: getLaneStats(),
+              clients: state.clients.size,
+              watchers: state.watchers.size,
+              agents: Object.keys(state.config.agents),
+              model: state.config.model,
+              tailscaleUrl: state.tailscaleUrl ?? null,
+            });
+            break;
+          }
+
           case "approval.decide": {
             const id = msg.id as string;
             const decision = msg.decision as ApprovalDecision;
@@ -208,6 +234,7 @@ export function registerWsHandler(wss: WebSocketServer, state: GatewayState): vo
 
     ws.on("close", () => {
       state.clients.delete(ws);
+      state.watchers.delete(ws);
       if (abortController) abortController.abort();
     });
   });

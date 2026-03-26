@@ -10,6 +10,7 @@ import { createClient } from "./model.js";
 import { seedWorkspace } from "./workspace.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { startCronJob, stopAllCronJobs, startRuntimeJobs, setCronContext, type CronJob } from "./extensions/cron.js";
+import { startHeartbeat, stopHeartbeat } from "./extensions/heartbeat.js";
 import { configureLane, Lane } from "./runtime/lanes.js";
 import { runBoot } from "./boot.js";
 import { errorMessage } from "./core/errors.js";
@@ -53,6 +54,7 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
     token: config.serve.token,
     silent: !!opts.silent,
     clients: new Set<WebSocket>(),
+    watchers: new Set<WebSocket>(),
     startTime: Date.now(),
   };
 
@@ -73,9 +75,16 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
   const host = opts.host ?? config.serve.host;
   const log = opts.silent ? (..._a: unknown[]) => {} : console.log;
 
+  // Warn when binding non-loopback without token
+  const LOOPBACK = new Set(["127.0.0.1", "::1", "localhost"]);
+  if (!LOOPBACK.has(host) && !state.token) {
+    console.log(`\n  \x1b[33m⚠  WARNING: Gateway bound to ${host} without auth token.\x1b[0m`);
+    console.log(`  \x1b[33m   Set serve.token in config or CAMELAGI_TOKEN env var.\x1b[0m\n`);
+  }
+
   const app = express();
   app.use(express.json({ limit: "1mb" }));
-  app.use(csrfProtection());
+  app.use(csrfProtection(state));
   if (!opts.silent) {
     app.use(requestLogger());
   }
@@ -116,6 +125,23 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
     });
   });
 
+  // Tailscale exposure (serve / funnel)
+  let tailscaleCleanup: (() => Promise<void>) | null = null;
+  if (config.serve.tailscale !== "off") {
+    try {
+      const { startTailscaleExposure } = await import("./infra/tailscale.js");
+      const ts = await startTailscaleExposure({
+        mode: config.serve.tailscale as "serve" | "funnel",
+        port: actualPort,
+        log,
+      });
+      tailscaleCleanup = ts.cleanup;
+      if (ts.url) state.tailscaleUrl = ts.url;
+    } catch (err) {
+      log(`  Tailscale: failed — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   const agents = Object.keys(state.config.agents);
   const apiStatus = state.config.apiKey ? "\x1b[32mset\x1b[0m" : "\x1b[33mnot set\x1b[0m";
 
@@ -126,6 +152,11 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
   console.log(`  \x1b[36m│\x1b[0m  HTTP   http://${host}:${actualPort}${" ".repeat(Math.max(0, 19 - String(actualPort).length - host.length))} \x1b[36m│\x1b[0m`);
   console.log(`  \x1b[36m│\x1b[0m  WS     ws://${host}:${actualPort}${" ".repeat(Math.max(0, 21 - String(actualPort).length - host.length))} \x1b[36m│\x1b[0m`);
   console.log(`  \x1b[36m│\x1b[0m  API    ${apiStatus}${" ".repeat(Math.max(0, state.config.apiKey ? 27 : 23))} \x1b[36m│\x1b[0m`);
+  if (state.tailscaleUrl) {
+    const tsLabel = config.serve.tailscale === "funnel" ? "Funnel" : "Serve";
+    const tsUrl = state.tailscaleUrl;
+    console.log(`  \x1b[36m│\x1b[0m  TS     ${tsLabel} ${tsUrl}${" ".repeat(Math.max(0, 23 - tsLabel.length - tsUrl.length))} \x1b[36m│\x1b[0m`);
+  }
   if (agents.length > 0) {
     const agentStr = agents.join(", ");
     console.log(`  \x1b[36m│\x1b[0m  Agents ${agentStr}${" ".repeat(Math.max(0, 29 - agentStr.length))} \x1b[36m│\x1b[0m`);
@@ -178,6 +209,17 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
     }
   }
 
+  // Heartbeat (agent-managed periodic checklist)
+  const heartbeatOpts = {
+    onRun: (response: string) => { log(`  Heartbeat: ${response.slice(0, 80)}`); },
+    onSkip: (_reason: string) => { /* silent */ },
+    onError: (err: Error) => { slog.error("heartbeat", "Heartbeat failed", { error: err.message }); },
+  };
+  if (state.config.heartbeat?.enabled) {
+    startHeartbeat(state.config, heartbeatOpts);
+    log("  Heartbeat started");
+  }
+
   // Config hot-reload
   const channelsEnabled = opts.channels !== false;
   const configWatcher = watchConfig(state.config, (newConfig) => {
@@ -194,6 +236,12 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
     configureLane(Lane.Subagent, state.config.lanes.subagent);
     setCronContext(state.config, state.systemPrompt);
 
+    // Restart heartbeat with new config
+    stopHeartbeat();
+    if (state.config.heartbeat?.enabled) {
+      startHeartbeat(state.config, heartbeatOpts);
+    }
+
     // Reconcile channels: start new bots, stop removed ones
     if (channelsEnabled) {
       import("./channels/index.js")
@@ -207,6 +255,8 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
     clearInterval(heartbeat);
     configWatcher?.close();
     stopAllCronJobs();
+    stopHeartbeat();
+    if (tailscaleCleanup) await tailscaleCleanup();
     for (const ws of state.clients) ws.close(1001, "Server shutting down");
     try {
       const { stopAllChannels } = await import("./channels/index.js");
