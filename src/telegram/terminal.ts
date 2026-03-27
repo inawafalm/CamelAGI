@@ -12,7 +12,14 @@ import os from "node:os";
 interface TerminalSession {
   sessionId?: string;   // Claude Code session ID for --resume
   workDir: string;      // Working directory for subprocess
-  model?: string;       // Model override (e.g. "sonnet", "opus")
+  model?: string;       // --model (e.g. "sonnet", "opus")
+  effort?: string;      // --effort (low, medium, high, max)
+  systemPrompt?: string; // --system-prompt
+  allowedTools?: string[];  // --allowedTools
+  disallowedTools?: string[]; // --disallowedTools
+  worktree?: boolean;   // --worktree
+  maxBudgetUsd?: number; // --max-budget-usd
+  addDirs?: string[];   // --add-dir
   busy: boolean;        // True while a claude process is running
 }
 
@@ -74,6 +81,15 @@ export function getTerminalModel(chatId: number): string | undefined {
 export function setTerminalModel(chatId: number, model: string | undefined): void {
   const session = sessions.get(chatId);
   if (session) session.model = model;
+}
+
+export function getTerminalSetting<K extends keyof TerminalSession>(chatId: number, key: K): TerminalSession[K] | undefined {
+  return sessions.get(chatId)?.[key];
+}
+
+export function setTerminalSetting<K extends keyof TerminalSession>(chatId: number, key: K, value: TerminalSession[K]): void {
+  const session = sessions.get(chatId);
+  if (session) (session as any)[key] = value;
 }
 
 export function expandHome(p: string): string {
@@ -144,6 +160,29 @@ export async function handleTerminalMessage(
     }
     if (session.model) {
       args.push("--model", session.model);
+    }
+    if (session.effort) {
+      args.push("--effort", session.effort);
+    }
+    if (session.systemPrompt) {
+      args.push("--system-prompt", session.systemPrompt);
+    }
+    if (session.allowedTools?.length) {
+      args.push("--allowedTools", ...session.allowedTools);
+    }
+    if (session.disallowedTools?.length) {
+      args.push("--disallowedTools", ...session.disallowedTools);
+    }
+    if (session.worktree) {
+      args.push("--worktree");
+    }
+    if (session.maxBudgetUsd) {
+      args.push("--max-budget-usd", String(session.maxBudgetUsd));
+    }
+    if (session.addDirs?.length) {
+      for (const dir of session.addDirs) {
+        args.push("--add-dir", expandHome(dir));
+      }
     }
 
     const child = spawn("claude", args, {

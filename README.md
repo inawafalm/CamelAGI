@@ -60,7 +60,36 @@ camel serve      # Start the gateway server
 camel chat       # Terminal UI
 ```
 
-After setup, use `/newagent` in Telegram to create your first AI agent.
+After setup, use `/newagent` in Telegram to create your first AI agent. You'll choose between two modes:
+
+### Path 1: LLM Agent (API-based)
+
+Uses your API key (Anthropic, OpenAI, OpenRouter, etc.) to run an AI agent through CamelAGI's own runtime.
+
+1. Open the admin bot in Telegram
+2. Send `/newagent`
+3. Pick a name → select **LLM (API-based)** → choose a model → paste a bot token
+4. Message your new bot — it runs tools, reads files, remembers context
+
+### Path 2: Claude Code Agent (local CLI)
+
+Runs [Claude Code](https://docs.anthropic.com/en/docs/claude-code) directly on your machine, remote-controlled from Telegram. Same experience as the Claude Code CLI, but from your phone.
+
+> **Requires:** Claude Code installed and logged in on the machine running CamelAGI.
+>
+> ```bash
+> npm i -g @anthropic-ai/claude-code
+> claude login
+> ```
+
+1. Open the admin bot in Telegram
+2. Send `/newagent`
+3. Pick a name → select **Claude Code (local CLI)** → paste a bot token
+4. Message your new bot — CamelAGI launches `claude` on your machine, streams the response back to Telegram
+
+Claude Code agents get the full Claude Code experience: file editing, shell commands, code search, sub-agents — all from Telegram. Use `/model`, `/effort`, `/workdir`, `/review`, `/fix`, `/test`, `/commit` and more, right from the chat.
+
+You can also use `/claudecode` in any existing agent bot to start a Claude Code session on the fly.
 
 <br>
 
