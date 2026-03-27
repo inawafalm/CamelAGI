@@ -25,7 +25,7 @@ import { listSkillNames } from "../extensions/skills.js";
 import { classifyError } from "../runtime/retry.js";
 import { log as slog } from "../core/log.js";
 import { transcribe } from "./transcribe.js";
-import { detectClaudeCode, startTerminal, endTerminal, hasTerminal, isTerminalBusy, handleTerminalMessage, expandHome, updateWorkDir, getTerminalSessionId, getTerminalWorkDir, getTerminalModel, setTerminalModel, getTerminalSetting, setTerminalSetting, listClaudeSessions } from "./terminal.js";
+import { detectClaudeCode, startTerminal, endTerminal, hasTerminal, isTerminalBusy, handleTerminalMessage, expandHome, updateWorkDir, getTerminalSessionId, getTerminalWorkDir, getTerminalModel, setTerminalModel, getTerminalSetting, setTerminalSetting, setPinnedMessageId, getPinnedMessageId, listClaudeSessions } from "./terminal.js";
 import { startBrowse, handleBrowseCallback } from "./dir-browser.js";
 import os from "node:os";
 
@@ -189,6 +189,36 @@ export async function setupAgentBot(
     notifyAdminOfPairing(request, getConfig(), activeBots);
   });
 
+  // ─── Command mode guard ──────────────────────────────────────────
+  // Normal commands blocked in Claude Code mode, Claude Code commands blocked in normal mode
+
+  const CC_ONLY_COMMANDS = new Set([
+    "exit", "review", "fix", "test", "refactor", "security",
+    "pr", "commit", "init", "explain", "doc", "cost",
+    "prompt", "budget", "adddir", "tools", "worktree",
+  ]);
+  const SHARED_COMMANDS = new Set([
+    "claudecode", "start", "model", "effort", "workdir", "help",
+  ]);
+
+  b.on("message", async (ctx, next) => {
+    const text = ctx.message?.text;
+    if (!text?.startsWith("/")) { await next(); return; }
+    const cmd = text.split(/[\s@]/)[0].slice(1).toLowerCase();
+    if (SHARED_COMMANDS.has(cmd)) { await next(); return; }
+
+    const inCC = hasTerminal(ctx.chat.id);
+    if (inCC && !CC_ONLY_COMMANDS.has(cmd)) {
+      await ctx.reply("Exit Claude Code first (/exit), then use this command.");
+      return;
+    }
+    if (!inCC && CC_ONLY_COMMANDS.has(cmd)) {
+      await ctx.reply("Start Claude Code first (/claudecode).");
+      return;
+    }
+    await next();
+  });
+
   // ─── Commands ─────────────────────────────────────────────────────
 
   b.command("start", async (ctx) => {
@@ -258,6 +288,22 @@ export async function setupAgentBot(
   });
 
   b.command("model", async (ctx) => {
+    // Claude Code mode: only Claude models (sonnet, opus, haiku)
+    if (hasTerminal(ctx.chat.id)) {
+      const arg = ctx.match?.trim();
+      if (arg) {
+        setTerminalModel(ctx.chat.id, arg);
+        await ctx.reply(`Model set to: ${arg}`);
+      } else {
+        const current = getTerminalModel(ctx.chat.id) ?? "default";
+        const kb = new InlineKeyboard()
+          .text("Sonnet 4.6", "cc:setmodel:claude-sonnet-4-6").text("Opus 4.6", "cc:setmodel:claude-opus-4-6").row()
+          .text("Haiku 4.5", "cc:setmodel:claude-haiku-4-5-20251001").row()
+          .text("Default", "cc:setmodel:__default__");
+        await ctx.reply(`Claude Code model: ${current}`, { reply_markup: kb });
+      }
+      return;
+    }
     const newModel = ctx.match?.trim();
     if (!newModel) {
       const agent = getAgent(ctx.chat.id);
@@ -296,6 +342,22 @@ export async function setupAgentBot(
   });
 
   b.command("effort", async (ctx) => {
+    // Claude Code mode: set effort for claude subprocess
+    if (hasTerminal(ctx.chat.id)) {
+      const levels = ["low", "medium", "high", "max"];
+      const arg = ctx.match?.trim();
+      if (arg && levels.includes(arg)) {
+        setTerminalSetting(ctx.chat.id, "effort", arg);
+        await ctx.reply(`Effort set to: ${arg}`);
+      } else {
+        const current = getTerminalSetting(ctx.chat.id, "effort") ?? "default";
+        const kb = new InlineKeyboard()
+          .text("Low", "cc:effort:low").text("Medium", "cc:effort:medium").row()
+          .text("High", "cc:effort:high").text("Max", "cc:effort:max");
+        await ctx.reply(`Effort: ${current}`, { reply_markup: kb });
+      }
+      return;
+    }
     const levels = ["low", "medium", "high", "max"] as const;
     const arg = ctx.match?.trim() as typeof levels[number];
     const agent = getAgent(ctx.chat.id);
@@ -501,6 +563,23 @@ export async function setupAgentBot(
 
   // ─── /cc — Claude Code menu ────────────────────────────────────────
 
+  async function ccPinStatus(chatId: number, api: Bot["api"], on: boolean) {
+    // Unpin old message if exists
+    const oldPin = getPinnedMessageId(chatId);
+    if (oldPin) {
+      try { await api.unpinChatMessage(chatId, oldPin); } catch {}
+      try { await api.deleteMessage(chatId, oldPin); } catch {}
+      setPinnedMessageId(chatId, undefined);
+    }
+    if (on) {
+      try {
+        const msg = await api.sendMessage(chatId, "Claude Code ON");
+        await api.pinChatMessage(chatId, msg.message_id, { disable_notification: true });
+        setPinnedMessageId(chatId, msg.message_id);
+      } catch {}
+    }
+  }
+
   function ccResolveWorkDir(): string {
     const config = getConfig();
     const agentConfig = config.agents[agentId];
@@ -559,6 +638,7 @@ export async function setupAgentBot(
       await ctx.reply("No active Claude Code session.");
       return;
     }
+    await ccPinStatus(ctx.chat.id, ctx.api, false);
     endTerminal(ctx.chat.id);
     await setCommandMenu(false);
     await ctx.reply("Claude Code stopped.");
@@ -627,8 +707,9 @@ export async function setupAgentBot(
       } else {
         const current = getTerminalModel(chatId) ?? "default";
         const kb = new InlineKeyboard()
-          .text("Sonnet", "cc:setmodel:sonnet").text("Opus", "cc:setmodel:opus").row()
-          .text("Haiku", "cc:setmodel:haiku").text("Default", "cc:setmodel:__default__");
+          .text("Sonnet 4.6", "cc:setmodel:claude-sonnet-4-6").text("Opus 4.6", "cc:setmodel:claude-opus-4-6").row()
+          .text("Haiku 4.5", "cc:setmodel:claude-haiku-4-5-20251001").row()
+          .text("Default", "cc:setmodel:__default__");
         await ctx.reply(`Model: ${current}`, { reply_markup: kb });
       }
       return true;
@@ -767,19 +848,29 @@ export async function setupAgentBot(
       await setReaction("eyes");
       await ctx.replyWithChatAction("typing");
 
-      const result = await handleTerminalMessage(chatId, text, (event) => {
-        if (event.type === "text_delta" && event.text) {
-          pendingText += event.text;
-          draft.update(pendingText);
-        } else if (event.type === "thinking_start") {
-          setReaction("thought_balloon").catch(() => {});
-        } else if (event.type === "tool_use") {
-          setReaction("wrench").catch(() => {});
-        }
-      });
+      // Keep "typing" alive every 4s while Claude Code runs
+      const typingInterval = setInterval(() => {
+        ctx.replyWithChatAction("typing").catch(() => {});
+      }, 4000);
 
-      const response = result.response || "(no response)";
-      pendingText = response;
+      let result: Awaited<ReturnType<typeof handleTerminalMessage>>;
+      try {
+        result = await handleTerminalMessage(chatId, text, (event) => {
+          if (event.type === "text_delta" && event.text) {
+            pendingText += event.text;
+            draft.update(pendingText);
+          } else if (event.type === "thinking_start") {
+            setReaction("thought_balloon").catch(() => {});
+          } else if (event.type === "tool_use") {
+            setReaction("wrench").catch(() => {});
+          }
+        });
+      } finally {
+        clearInterval(typingInterval);
+      }
+
+      // Use streamed text if available, fall back to result.response
+      const response = pendingText || result.response || "(no response)";
       draft.update(response);
       await draft.flush();
 
@@ -998,8 +1089,10 @@ export async function setupAgentBot(
       if (action === "start") {
         startTerminal(chatId, ccResolveWorkDir());
         await setCommandMenu(true);
+        await ccPinStatus(chatId, ctx.api, true);
         await ctx.editMessageText("Claude Code started. Send messages.");
       } else if (action === "stop") {
+        await ccPinStatus(chatId, ctx.api, false);
         endTerminal(chatId);
         await setCommandMenu(false);
         await ctx.editMessageText("Claude Code stopped.");
@@ -1007,6 +1100,7 @@ export async function setupAgentBot(
         // Start fresh session (clear old sessionId)
         startTerminal(chatId, ccResolveWorkDir());
         await setCommandMenu(true);
+        await ccPinStatus(chatId, ctx.api, true);
         await ctx.editMessageText("New Claude Code session started.");
       } else if (action === "sessions") {
         const sessions = listClaudeSessions();
@@ -1045,8 +1139,9 @@ export async function setupAgentBot(
       } else if (action === "model") {
         const current = getTerminalModel(chatId) ?? "default";
         const kb = new InlineKeyboard()
-          .text("Sonnet", "cc:setmodel:sonnet").text("Opus", "cc:setmodel:opus").row()
-          .text("Haiku", "cc:setmodel:haiku").text("Default", "cc:setmodel:__default__").row()
+          .text("Sonnet 4.6", "cc:setmodel:claude-sonnet-4-6").text("Opus 4.6", "cc:setmodel:claude-opus-4-6").row()
+          .text("Haiku 4.5", "cc:setmodel:claude-haiku-4-5-20251001").row()
+          .text("Default", "cc:setmodel:__default__").row()
           .text("⬅ Back", "cc:back");
         await ctx.editMessageText(`Current model: ${current}\n\nSelect model:`, { reply_markup: kb });
       } else if (action.startsWith("setmodel:")) {
@@ -1081,6 +1176,7 @@ export async function setupAgentBot(
         const sessionId = action.slice("resume:".length);
         startTerminal(chatId, ccResolveWorkDir(), sessionId);
         await setCommandMenu(true);
+        await ccPinStatus(chatId, ctx.api, true);
         await ctx.editMessageText(`Resumed session ${sessionId.slice(0, 8)}... Send messages.`);
       }
     }

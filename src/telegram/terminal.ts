@@ -19,6 +19,7 @@ interface TerminalSession {
   disallowedTools?: string[]; // --disallowedTools
   worktree?: boolean;   // --worktree
   maxBudgetUsd?: number; // --max-budget-usd
+  pinnedMessageId?: number; // Telegram pinned status message
   addDirs?: string[];   // --add-dir
   busy: boolean;        // True while a claude process is running
 }
@@ -90,6 +91,15 @@ export function getTerminalSetting<K extends keyof TerminalSession>(chatId: numb
 export function setTerminalSetting<K extends keyof TerminalSession>(chatId: number, key: K, value: TerminalSession[K]): void {
   const session = sessions.get(chatId);
   if (session) (session as any)[key] = value;
+}
+
+export function setPinnedMessageId(chatId: number, messageId: number | undefined): void {
+  const session = sessions.get(chatId);
+  if (session) session.pinnedMessageId = messageId;
+}
+
+export function getPinnedMessageId(chatId: number): number | undefined {
+  return sessions.get(chatId)?.pinnedMessageId;
 }
 
 export function expandHome(p: string): string {
