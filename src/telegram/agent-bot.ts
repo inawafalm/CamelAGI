@@ -561,6 +561,9 @@ export async function setupAgentBot(
 
   // ─── Terminal mode: Claude Code via CLI ──────────────────────────
 
+  // Track chats that manually exited Claude Code (prevents auto-restart for mode: claude-code agents)
+  const ccPaused = new Set<number>();
+
   // ─── /cc — Claude Code menu ────────────────────────────────────────
 
   async function ccPinStatus(chatId: number, api: Bot["api"], on: boolean) {
@@ -640,8 +643,9 @@ export async function setupAgentBot(
     }
     await ccPinStatus(ctx.chat.id, ctx.api, false);
     endTerminal(ctx.chat.id);
+    ccPaused.add(ctx.chat.id);
     await setCommandMenu(false);
-    await ctx.reply("Claude Code stopped.");
+    await ctx.reply("Claude Code stopped. Use /claudecode to start again.");
   });
 
   b.command("workdir", async (ctx) => {
@@ -1087,6 +1091,7 @@ export async function setupAgentBot(
       const chatId = ctx.chat!.id;
 
       if (action === "start") {
+        ccPaused.delete(chatId);
         startTerminal(chatId, ccResolveWorkDir());
         await setCommandMenu(true);
         await ccPinStatus(chatId, ctx.api, true);
@@ -1094,10 +1099,12 @@ export async function setupAgentBot(
       } else if (action === "stop") {
         await ccPinStatus(chatId, ctx.api, false);
         endTerminal(chatId);
+        ccPaused.add(chatId);
         await setCommandMenu(false);
-        await ctx.editMessageText("Claude Code stopped.");
+        await ctx.editMessageText("Claude Code stopped. Use /claudecode to start again.");
       } else if (action === "new") {
         // Start fresh session (clear old sessionId)
+        ccPaused.delete(chatId);
         startTerminal(chatId, ccResolveWorkDir());
         await setCommandMenu(true);
         await ccPinStatus(chatId, ctx.api, true);
@@ -1174,6 +1181,7 @@ export async function setupAgentBot(
         }
       } else if (action.startsWith("resume:")) {
         const sessionId = action.slice("resume:".length);
+        ccPaused.delete(chatId);
         startTerminal(chatId, ccResolveWorkDir(), sessionId);
         await setCommandMenu(true);
         await ccPinStatus(chatId, ctx.api, true);
@@ -1189,10 +1197,11 @@ export async function setupAgentBot(
       return;
     }
     const agentCfg = getConfig().agents[agentId];
-    if (agentCfg?.mode === "claude-code") {
-      // Auto-start terminal session for claude-code agents
+    if (agentCfg?.mode === "claude-code" && !ccPaused.has(ctx.chat.id)) {
+      // Auto-start terminal session for claude-code agents (unless manually exited)
       const workDir = agentCfg.workDir ? expandHome(agentCfg.workDir) : os.homedir() + "/Desktop";
       startTerminal(ctx.chat.id, workDir);
+      await setCommandMenu(true);
       await handleTerminalIncoming(ctx);
       return;
     }
