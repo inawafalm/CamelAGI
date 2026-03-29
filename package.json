@@ -1,6 +1,6 @@
 {
   "name": "camelagi",
-  "version": "0.5.33",
+  "version": "0.5.37",
   "description": "Personal AI agent powered by Claude Agent SDK — manage everything from Telegram",
   "type": "module",
   "bin": {
@@ -73,6 +73,6 @@
     "bot"
   ],
   "engines": {
-    "node": ">=23"
+    "node": ">=20"
   }
 }

@@ -125,6 +125,7 @@ const schema = z.object({
     admin: z.boolean().default(false),
     mode: z.enum(["llm", "claude-code"]).default("llm").optional(),
     workDir: z.string().optional(),
+    ccApprovals: z.enum(["skip", "acceptEdits"]).default("skip").optional(),
     model: z.string().optional(),
     systemPrompt: z.string().optional(),
     thinking: z.enum(["off", "low", "medium", "high"]).optional(),

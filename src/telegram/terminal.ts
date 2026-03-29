@@ -5,6 +5,8 @@
 
 import { spawn, execSync } from "node:child_process";
 import { createInterface } from "node:readline";
+import fs from "node:fs";
+import path from "node:path";
 import os from "node:os";
 
 // ─── Types ─────────────────────────────────────────────────────────────
@@ -19,6 +21,7 @@ interface TerminalSession {
   disallowedTools?: string[]; // --disallowedTools
   worktree?: boolean;   // --worktree
   maxBudgetUsd?: number; // --max-budget-usd
+  permissionMode?: "skip" | "acceptEdits"; // --dangerously-skip-permissions vs --permission-mode acceptEdits
   pinnedMessageId?: number; // Telegram pinned status message
   addDirs?: string[];   // --add-dir
   busy: boolean;        // True while a claude process is running
@@ -123,23 +126,60 @@ export interface ClaudeSession {
   updatedAt?: string;
 }
 
-export function listClaudeSessions(): ClaudeSession[] {
+export function listClaudeSessions(workDir?: string): ClaudeSession[] {
   try {
-    const output = execSync("claude sessions list --output-format json", {
-      stdio: ["ignore", "pipe", "pipe"],
-      encoding: "utf-8",
-      timeout: 10_000,
-    });
-    const parsed = JSON.parse(output);
-    if (Array.isArray(parsed)) {
-      return parsed.slice(0, 10).map((s: any) => ({
-        id: s.id ?? s.session_id ?? "",
-        name: s.name ?? s.display_name ?? undefined,
-        cwd: s.cwd ?? s.working_directory ?? undefined,
-        updatedAt: s.updated_at ?? s.updatedAt ?? undefined,
-      }));
+    const claudeDir = path.join(os.homedir(), ".claude", "projects");
+    if (!fs.existsSync(claudeDir)) return [];
+
+    // Scan all project dirs, or just the one matching workDir
+    let projectDirs: string[];
+    if (workDir) {
+      // Claude Code encodes paths: /Users/foo/Desktop → -Users-foo-Desktop
+      const encoded = workDir.replace(/^\//, "").replace(/\//g, "-");
+      const projectDir = path.join(claudeDir, `-${encoded}`);
+      // Also try without leading dash for root paths
+      const altDir = path.join(claudeDir, encoded);
+      projectDirs = [projectDir, altDir].filter(d => fs.existsSync(d));
+    } else {
+      // Scan all project dirs
+      projectDirs = fs.readdirSync(claudeDir)
+        .map(d => path.join(claudeDir, d))
+        .filter(d => fs.statSync(d).isDirectory());
     }
-    return [];
+
+    const sessions: { id: string; name?: string; cwd?: string; updatedAt: string; mtime: number }[] = [];
+
+    for (const dir of projectDirs) {
+      const files = fs.readdirSync(dir).filter(f => f.endsWith(".jsonl"));
+      for (const file of files) {
+        const fullPath = path.join(dir, file);
+        try {
+          const stat = fs.statSync(fullPath);
+          const sessionId = file.replace(".jsonl", "");
+          // Read first user message line to get cwd and name
+          const content = fs.readFileSync(fullPath, "utf-8");
+          const firstUserLine = content.split("\n").find(l => l.includes('"type":"user"'));
+          let cwd: string | undefined;
+          if (firstUserLine) {
+            try {
+              const parsed = JSON.parse(firstUserLine);
+              cwd = parsed.cwd;
+            } catch {}
+          }
+          sessions.push({
+            id: sessionId,
+            cwd,
+            updatedAt: new Date(stat.mtimeMs).toISOString(),
+            mtime: stat.mtimeMs,
+          });
+        } catch { /* skip unreadable files */ }
+      }
+    }
+
+    return sessions
+      .sort((a, b) => b.mtime - a.mtime)
+      .slice(0, 10)
+      .map(({ mtime: _, ...rest }) => rest);
   } catch {
     return [];
   }
@@ -163,8 +203,12 @@ export async function handleTerminalMessage(
       "--output-format", "stream-json",
       "--verbose",
       "--include-partial-messages",
-      "--dangerously-skip-permissions",
     ];
+    if (session.permissionMode === "acceptEdits") {
+      args.push("--permission-mode", "acceptEdits");
+    } else {
+      args.push("--dangerously-skip-permissions");
+    }
     if (session.sessionId) {
       args.push("-r", session.sessionId);
     }

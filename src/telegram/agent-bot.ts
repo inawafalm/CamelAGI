@@ -111,34 +111,45 @@ export async function setupAgentBot(
   ];
 
   const CLAUDECODE_COMMANDS = [
-    { command: "claudecode", description: "Menu — sessions, status, settings" },
+    // Core
+    { command: "claudecode", description: "Menu — sessions, model, settings" },
     { command: "exit", description: "Exit Claude Code mode" },
     { command: "model", description: "Switch model (sonnet, opus, haiku)" },
-    { command: "effort", description: "Set effort level (low, medium, high, max)" },
-    { command: "workdir", description: "Browse and change working directory" },
+    { command: "workdir", description: "Change working directory" },
+    // Code actions
     { command: "review", description: "Review code changes" },
     { command: "fix", description: "Find and fix bugs" },
     { command: "test", description: "Write or run tests" },
-    { command: "refactor", description: "Suggest refactoring improvements" },
-    { command: "security", description: "Security review" },
+    { command: "commit", description: "Commit changes" },
     { command: "pr", description: "Write PR description" },
-    { command: "commit", description: "Create commit message and commit" },
-    { command: "init", description: "Create CLAUDE.md for the project" },
+    { command: "refactor", description: "Suggest refactoring" },
+    { command: "security", description: "Security review" },
     { command: "explain", description: "Explain the codebase" },
+    { command: "init", description: "Create CLAUDE.md" },
     { command: "doc", description: "Generate documentation" },
-    { command: "cost", description: "Show session cost" },
-    { command: "prompt", description: "Set custom system prompt" },
-    { command: "budget", description: "Set max budget in USD" },
-    { command: "adddir", description: "Add extra directory access" },
-    { command: "tools", description: "Allow/deny specific tools" },
-    { command: "worktree", description: "Toggle git worktree isolation" },
+    // Settings
+    { command: "effort", description: "Effort level (low/medium/high/max)" },
+    { command: "tools", description: "Allow/deny tools" },
+    { command: "approvals", description: "Approval mode (skip/acceptEdits)" },
+    { command: "prompt", description: "Custom system prompt" },
+    { command: "budget", description: "Max budget in USD" },
+    { command: "adddir", description: "Add extra directory" },
+    { command: "worktree", description: "Git worktree isolation" },
+    { command: "cost", description: "Session cost" },
   ];
 
-  async function setCommandMenu(ccMode: boolean) {
-    await b.api.setMyCommands(ccMode ? CLAUDECODE_COMMANDS : NORMAL_COMMANDS).catch(() => {});
+  async function setCommandMenu(ccMode: boolean, chatId?: number) {
+    const commands = ccMode ? CLAUDECODE_COMMANDS : NORMAL_COMMANDS;
+    if (chatId) {
+      // Per-chat menu
+      await b.api.setMyCommands(commands, { scope: { type: "chat", chat_id: chatId } }).catch(() => {});
+    } else {
+      // Global default
+      await b.api.setMyCommands(commands).catch(() => {});
+    }
   }
 
-  // Set initial commands
+  // Set global default commands
   await setCommandMenu(false);
 
   /** Check if userId is allowed for this agent (in-memory + file fallback) */
@@ -195,7 +206,7 @@ export async function setupAgentBot(
   const CC_ONLY_COMMANDS = new Set([
     "exit", "review", "fix", "test", "refactor", "security",
     "pr", "commit", "init", "explain", "doc", "cost",
-    "prompt", "budget", "adddir", "tools", "worktree",
+    "prompt", "budget", "adddir", "tools", "worktree", "approvals",
   ]);
   const SHARED_COMMANDS = new Set([
     "claudecode", "start", "model", "effort", "workdir", "help",
@@ -567,13 +578,14 @@ export async function setupAgentBot(
   // ─── /cc — Claude Code menu ────────────────────────────────────────
 
   async function ccPinStatus(chatId: number, api: Bot["api"], on: boolean) {
-    // Unpin old message if exists
+    // Always clean up old pin first
     const oldPin = getPinnedMessageId(chatId);
     if (oldPin) {
       try { await api.unpinChatMessage(chatId, oldPin); } catch {}
       try { await api.deleteMessage(chatId, oldPin); } catch {}
-      setPinnedMessageId(chatId, undefined);
     }
+    setPinnedMessageId(chatId, undefined);
+
     if (on) {
       try {
         const msg = await api.sendMessage(chatId, "Claude Code ON");
@@ -608,15 +620,21 @@ export async function setupAgentBot(
       const budget = getTerminalSetting(ctx.chat.id, "maxBudgetUsd");
       const worktree = getTerminalSetting(ctx.chat.id, "worktree");
 
+      const approvals = getTerminalSetting(ctx.chat.id, "permissionMode") ?? "skip";
+
       const kb = new InlineKeyboard()
         .text("New Session", "cc:new").text("Stop", "cc:stop").row()
         .text("Model", "cc:model").text("Effort", "cc:effortmenu").row()
-        .text("Sessions", "cc:sessions").text("Work Dir", "cc:workdir");
+        .text("Approvals", "cc:approvalsmenu").text("Sessions", "cc:sessions").row()
+        .text("Work Dir", "cc:workdir");
+
+      const approvalsLabel = approvals === "acceptEdits" ? "Accept Edits" : "Skip All";
 
       const lines = [
         `Claude Code active`,
         `Session: ${sessionId.slice(0, 8)}...`,
         `Model: ${model} | Effort: ${effort}`,
+        `Approvals: ${approvalsLabel}`,
         `Dir: ${displayDir}`,
       ];
       if (budget) lines.push(`Budget: $${budget}`);
@@ -644,7 +662,7 @@ export async function setupAgentBot(
     await ccPinStatus(ctx.chat.id, ctx.api, false);
     endTerminal(ctx.chat.id);
     ccPaused.add(ctx.chat.id);
-    await setCommandMenu(false);
+    await setCommandMenu(false, ctx.chat.id);
     await ctx.reply("Claude Code stopped. Use /claudecode to start again.");
   });
 
@@ -772,34 +790,21 @@ export async function setupAgentBot(
       }
       return true;
     },
-    "/tools": async (ctx, args) => {
+    "/tools": async (ctx, _args) => {
       const chatId = ctx.chat.id;
       if (!hasTerminal(chatId)) { await ctx.reply("No active Claude Code session."); return true; }
-      if (!args) {
-        const allowed = getTerminalSetting(chatId, "allowedTools") ?? [];
-        const denied = getTerminalSetting(chatId, "disallowedTools") ?? [];
-        let msg = "Tool filtering:\n";
-        msg += allowed.length ? `Allowed: ${allowed.join(", ")}\n` : "Allowed: all\n";
-        msg += denied.length ? `Denied: ${denied.join(", ")}\n` : "Denied: none\n";
-        msg += "\n/tools allow Bash,Edit — set allowed\n/tools deny Bash — set denied\n/tools reset — clear all";
-        await ctx.reply(msg);
-        return true;
+      const denied = new Set(getTerminalSetting(chatId, "disallowedTools") ?? []);
+      const CC_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebSearch", "WebFetch", "Agent"];
+      const kb = new InlineKeyboard();
+      for (let i = 0; i < CC_TOOLS.length; i++) {
+        const t = CC_TOOLS[i];
+        const icon = denied.has(t) ? "🚫" : "✅";
+        kb.text(`${icon} ${t}`, `cc:tool:${t}`);
+        if ((i + 1) % 3 === 0) kb.row();
       }
-      const [sub, ...rest] = args.split(/\s+/);
-      const tools = rest.join(" ").split(/[,\s]+/).filter(Boolean);
-      if (sub === "allow" && tools.length) {
-        setTerminalSetting(chatId, "allowedTools", tools);
-        await ctx.reply(`Allowed tools: ${tools.join(", ")}`);
-      } else if (sub === "deny" && tools.length) {
-        setTerminalSetting(chatId, "disallowedTools", tools);
-        await ctx.reply(`Denied tools: ${tools.join(", ")}`);
-      } else if (sub === "reset") {
-        setTerminalSetting(chatId, "allowedTools", undefined as any);
-        setTerminalSetting(chatId, "disallowedTools", undefined as any);
-        await ctx.reply("Tool filtering reset.");
-      } else {
-        await ctx.reply("Usage: /tools allow Bash,Edit | /tools deny Bash | /tools reset");
-      }
+      kb.row().text("Reset All", "cc:tool:__reset__");
+      const status = denied.size ? `Blocked: ${[...denied].join(", ")}` : "All tools enabled";
+      await ctx.reply(`${status}\n\nTap to toggle:`, { reply_markup: kb });
       return true;
     },
     "/worktree": async (ctx, _args) => {
@@ -810,6 +815,29 @@ export async function setupAgentBot(
       await ctx.reply(`Git worktree: ${!current ? "ON" : "OFF"}`);
       return true;
     },
+    "/approvals": async (ctx, args) => {
+      const chatId = ctx.chat.id;
+      if (!hasTerminal(chatId)) { await ctx.reply("No active Claude Code session."); return true; }
+      const modes = ["skip", "acceptEdits"];
+      if (args && modes.includes(args)) {
+        setTerminalSetting(chatId, "permissionMode", args as "skip" | "acceptEdits");
+        const label = args === "acceptEdits" ? "Accept Edits" : "Skip All";
+        await ctx.reply(`Approvals set to: ${label}`);
+      } else {
+        const current = getTerminalSetting(chatId, "permissionMode") ?? "skip";
+        const label = current === "acceptEdits" ? "Accept Edits" : "Skip All";
+        const kb = new InlineKeyboard()
+          .text("Skip All", "cc:setapprovals:skip").text("Accept Edits", "cc:setapprovals:acceptEdits");
+        await ctx.reply(`Approvals: ${label}`, { reply_markup: kb });
+      }
+      return true;
+    },
+  };
+
+  // Terminal log helpers
+  const cclog = (icon: string, msg: string) => {
+    const time = new Date().toLocaleTimeString("en-GB", { hour12: false });
+    console.log(`  ${time} ${icon} ${msg}`);
   };
 
   async function handleTerminalIncoming(ctx: any) {
@@ -838,6 +866,9 @@ export async function setupAgentBot(
       return;
     }
 
+    const who = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name ?? "user";
+    cclog("→", `[${who}] ${text.slice(0, 120)}`);
+
     const draft = createDraftStream(chatId, ctx.api);
     let pendingText = "";
 
@@ -864,8 +895,10 @@ export async function setupAgentBot(
             pendingText += event.text;
             draft.update(pendingText);
           } else if (event.type === "thinking_start") {
+            cclog("..", "Thinking...");
             setReaction("thought_balloon").catch(() => {});
           } else if (event.type === "tool_use") {
+            cclog("⚡", `Tool: ${event.toolName ?? "unknown"}`);
             setReaction("wrench").catch(() => {});
           }
         });
@@ -886,9 +919,11 @@ export async function setupAgentBot(
         await sendChunked(ctx, response);
       }
 
+      cclog("←", `[claude] ${response.replace(/\n/g, " ").slice(0, 120)}`);
       await setReaction("");
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
+      cclog("✗", `Error: ${errMsg}`);
       slog.error("terminal", "Claude Code failed", { chatId, error: errMsg });
       const streamMsgId = draft.getMessageId();
       if (streamMsgId) {
@@ -1093,35 +1128,37 @@ export async function setupAgentBot(
       if (action === "start") {
         ccPaused.delete(chatId);
         startTerminal(chatId, ccResolveWorkDir());
-        await setCommandMenu(true);
+        await setCommandMenu(true, chatId);
         await ccPinStatus(chatId, ctx.api, true);
         await ctx.editMessageText("Claude Code started. Send messages.");
       } else if (action === "stop") {
         await ccPinStatus(chatId, ctx.api, false);
         endTerminal(chatId);
         ccPaused.add(chatId);
-        await setCommandMenu(false);
+        await setCommandMenu(false, chatId);
         await ctx.editMessageText("Claude Code stopped. Use /claudecode to start again.");
       } else if (action === "new") {
         // Start fresh session (clear old sessionId)
         ccPaused.delete(chatId);
         startTerminal(chatId, ccResolveWorkDir());
-        await setCommandMenu(true);
+        await setCommandMenu(true, chatId);
         await ccPinStatus(chatId, ctx.api, true);
         await ctx.editMessageText("New Claude Code session started.");
       } else if (action === "sessions") {
-        const sessions = listClaudeSessions();
-        if (sessions.length === 0) {
+        const ccSessions = listClaudeSessions(ccResolveWorkDir());
+        if (ccSessions.length === 0) {
           await ctx.editMessageText("No previous Claude Code sessions found.");
           return;
         }
+        const home = os.homedir();
         const kb = new InlineKeyboard();
-        for (const s of sessions) {
-          const label = s.name ?? s.id.slice(0, 8);
+        for (const s of ccSessions) {
+          const dir = s.cwd ? s.cwd.replace(home, "~") : "";
+          const label = s.name ?? `${s.id.slice(0, 8)} ${dir}`;
           kb.text(label, `cc:resume:${s.id}`).row();
         }
         kb.text("⬅ Back", "cc:back");
-        await ctx.editMessageText("Select a session to resume:", { reply_markup: kb });
+        await ctx.editMessageText("Resume a session:", { reply_markup: kb });
       } else if (action === "workdir") {
         const config = getConfig();
         const agentConfig = config.agents[agentId];
@@ -1143,6 +1180,50 @@ export async function setupAgentBot(
           .text("High", "cc:effort:high").text("Max", "cc:effort:max").row()
           .text("⬅ Back", "cc:back");
         await ctx.editMessageText(`Effort: ${current}\n\nSelect level:`, { reply_markup: kb });
+      } else if (action === "approvalsmenu") {
+        const current = getTerminalSetting(chatId, "permissionMode") ?? "skip";
+        const label = current === "acceptEdits" ? "Accept Edits" : "Skip All";
+        const kb = new InlineKeyboard()
+          .text("Skip All", "cc:setapprovals:skip").text("Accept Edits", "cc:setapprovals:acceptEdits").row()
+          .text("⬅ Back", "cc:back");
+        await ctx.editMessageText(`Approvals: ${label}\n\nSkip All — no checks, everything auto-approved\nAccept Edits — auto-accepts reads/edits, blocks dangerous commands`, { reply_markup: kb });
+      } else if (action.startsWith("setapprovals:")) {
+        const mode = action.slice("setapprovals:".length) as "skip" | "acceptEdits";
+        setTerminalSetting(chatId, "permissionMode", mode);
+        const label = mode === "acceptEdits" ? "Accept Edits" : "Skip All";
+        await ctx.editMessageText(`Approvals set to: ${label}`);
+      } else if (action.startsWith("tool:")) {
+        const tool = action.slice("tool:".length);
+        const CC_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebSearch", "WebFetch", "Agent"];
+        if (tool === "__reset__") {
+          setTerminalSetting(chatId, "disallowedTools", undefined as any);
+          setTerminalSetting(chatId, "allowedTools", undefined as any);
+          const kb = new InlineKeyboard();
+          for (let i = 0; i < CC_TOOLS.length; i++) {
+            kb.text(`✅ ${CC_TOOLS[i]}`, `cc:tool:${CC_TOOLS[i]}`);
+            if ((i + 1) % 3 === 0) kb.row();
+          }
+          kb.row().text("Reset All", "cc:tool:__reset__");
+          await ctx.editMessageText("All tools enabled\n\nTap to toggle:", { reply_markup: kb });
+        } else {
+          const denied = new Set(getTerminalSetting(chatId, "disallowedTools") ?? []);
+          if (denied.has(tool)) {
+            denied.delete(tool);
+          } else {
+            denied.add(tool);
+          }
+          setTerminalSetting(chatId, "disallowedTools", denied.size ? [...denied] : undefined as any);
+          const kb = new InlineKeyboard();
+          for (let i = 0; i < CC_TOOLS.length; i++) {
+            const t = CC_TOOLS[i];
+            const icon = denied.has(t) ? "🚫" : "✅";
+            kb.text(`${icon} ${t}`, `cc:tool:${t}`);
+            if ((i + 1) % 3 === 0) kb.row();
+          }
+          kb.row().text("Reset All", "cc:tool:__reset__");
+          const status = denied.size ? `Blocked: ${[...denied].join(", ")}` : "All tools enabled";
+          await ctx.editMessageText(`${status}\n\nTap to toggle:`, { reply_markup: kb });
+        }
       } else if (action === "model") {
         const current = getTerminalModel(chatId) ?? "default";
         const kb = new InlineKeyboard()
@@ -1183,7 +1264,7 @@ export async function setupAgentBot(
         const sessionId = action.slice("resume:".length);
         ccPaused.delete(chatId);
         startTerminal(chatId, ccResolveWorkDir(), sessionId);
-        await setCommandMenu(true);
+        await setCommandMenu(true, chatId);
         await ccPinStatus(chatId, ctx.api, true);
         await ctx.editMessageText(`Resumed session ${sessionId.slice(0, 8)}... Send messages.`);
       }
@@ -1201,7 +1282,10 @@ export async function setupAgentBot(
       // Auto-start terminal session for claude-code agents (unless manually exited)
       const workDir = agentCfg.workDir ? expandHome(agentCfg.workDir) : os.homedir() + "/Desktop";
       startTerminal(ctx.chat.id, workDir);
-      await setCommandMenu(true);
+      if (agentCfg.ccApprovals === "acceptEdits") {
+        setTerminalSetting(ctx.chat.id, "permissionMode", "acceptEdits");
+      }
+      await setCommandMenu(true, ctx.chat.id);
       await handleTerminalIncoming(ctx);
       return;
     }
