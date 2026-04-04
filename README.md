@@ -29,6 +29,10 @@
   Powered by Claude Agent SDK — the same runtime behind Claude Code.
 </p>
 
+<p align="center">
+  <img src="assets/camelSetupTUI.gif" alt="CamelAGI Setup" width="700" />
+</p>
+
 ---
 
 ## Install in 30 seconds
@@ -61,10 +65,6 @@ Use `/newagent` in Telegram to create your first AI agent.
 | Install | Setup & Run | Update |
 |:--------|:------------|:-------|
 | `npm i -g camelagi` | `camel setup` | `camel update` |
-
-<p align="center">
-  <img src="assets/camelSetupTUI.gif" alt="CamelAGI Setup" width="700" />
-</p>
 
 ```bash
 camel setup
