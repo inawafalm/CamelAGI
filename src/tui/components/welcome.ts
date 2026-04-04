@@ -12,9 +12,6 @@ const palette = {
   text: "#E8E3D5",
   dim: "#7B7F87",
   accent: "#F2A65A",
-  camelBody: "#F6C453",
-  camelDetail: "#D4A843",
-  camelAccessory: "#F2A65A",
 };
 
 const c = {
@@ -25,22 +22,23 @@ const c = {
   dim: (s: string) => chalk.hex(palette.dim)(s),
   accent: (s: string) => chalk.hex(palette.accent)(s),
   bold: (s: string) => chalk.bold.hex(palette.text)(s),
-  camelBody: (s: string) => chalk.hex(palette.camelBody)(s),
-  camelDetail: (s: string) => chalk.hex(palette.camelDetail)(s),
-  camelAccessory: (s: string) => chalk.hex(palette.camelAccessory)(s),
 };
 
-// Camel ASCII art
+const g = (s: string) => chalk.hex("#F6C453")(s);
+
 const CAMEL_ART = [
-  `   ${c.camelAccessory("╭──╮")}`,
-  `   ${c.camelAccessory("│")}${c.camelBody("@@")}${c.camelAccessory("│")}`,
-  `  ${c.camelBody("╭╯")}${c.camelAccessory("╰──╯")}${c.camelBody("╮")}`,
-  `  ${c.camelBody("│")}  ${c.camelDetail("◉◉")}  ${c.camelBody("│")}`,
-  ` ${c.camelBody("╭╯")}  ${c.camelBody("╰──╯")}  ${c.camelBody("╲")}`,
-  ` ${c.camelBody("│")} ${c.camelDetail("╭────╮")} ${c.camelBody("│")}`,
-  ` ${c.camelBody("╰╮")}${c.camelDetail("│")}    ${c.camelDetail("│")}${c.camelBody("╭╯")}`,
-  `  ${c.camelBody("║")}${c.camelDetail("╰────╯")}${c.camelBody("║")}`,
-  `  ${c.camelBody("╨")}  ${c.camelBody("╨╨")}  ${c.camelBody("╨")}`,
+  g("██████  █████  ███    ███ ███████ ██"),
+  g("██      ██   ██ ████  ████ ██      ██"),
+  g("██      ███████ ██ ████ ██ █████   ██"),
+  g("██      ██   ██ ██  ██  ██ ██      ██"),
+  g(" ██████ ██   ██ ██      ██ ███████ ███████"),
+  "",
+  g("          █████   ██████  ██"),
+  g("         ██   ██ ██       ██"),
+  g("         ███████ ██   ███ ██"),
+  g("         ██   ██ ██    ██ ██"),
+  g("         ██   ██  ██████  ██"),
+  "",
 ];
 
 function padRight(str: string, width: number): string {

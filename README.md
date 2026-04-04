@@ -62,6 +62,10 @@ Use `/newagent` in Telegram to create your first AI agent.
 |:--------|:------------|:-------|
 | `npm i -g camelagi` | `camel setup` | `camel update` |
 
+<p align="center">
+  <img src="assets/camelSetupTUI.gif" alt="CamelAGI Setup" width="700" />
+</p>
+
 ```bash
 camel setup
 camel serve

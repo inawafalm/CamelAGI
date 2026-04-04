@@ -27,6 +27,7 @@ import { theme, editorTheme, selectListTheme } from "./theme.js";
 import type { TuiCtx, TuiState } from "./context.js";
 import { handleWsMessage } from "./ws-handler.js";
 import { handleCommand, handleAgentCreation } from "./commands.js";
+import { VERSION } from "../core/version.js";
 
 export interface TuiOptions {
   session?: string;
@@ -222,14 +223,16 @@ export async function runTui(opts: TuiOptions = {}) {
     const preset = resolvePreset(state.config.provider, state.config.baseUrl);
     let models = [...preset.models];
 
-    // For OpenRouter: try fetching live model list
+    // For OpenRouter: fetch live list but keep curated presets at top
     const isOpenRouter = state.config.baseUrl?.includes("openrouter");
     if (isOpenRouter) {
       chatLog.addSystem("Fetching models from OpenRouter...");
       tui.requestRender();
       const live = await fetchOpenRouterModels(state.config.apiKey);
       if (live.length > 0) {
-        models = live.map((m) => m.id);
+        const presetSet = new Set(preset.models);
+        const rest = live.map(m => m.id).filter(id => !presetSet.has(id));
+        models = [...preset.models, ...rest];
       }
     }
 
@@ -237,9 +240,17 @@ export async function runTui(opts: TuiOptions = {}) {
       models.unshift(state.currentModel);
     }
 
-    const items = models.map((m) => ({
-      value: m, label: m, description: m === state.currentModel ? "(current)" : "",
-    }));
+    const items = models.map((m) => {
+      const isCurrent = m === state.currentModel;
+      const slash = m.indexOf("/");
+      const shortName = slash > 0 ? m.slice(slash + 1) : m;
+      const provider = slash > 0 ? m.slice(0, slash) : "";
+      return {
+        value: m,
+        label: isCurrent ? `✓ ${shortName}` : `  ${shortName}`,
+        description: isCurrent ? `${provider} (current)` : provider,
+      };
+    });
 
     const list = new SelectList(items, 15, selectListTheme);
     list.onSelect = async (item) => {
@@ -417,7 +428,7 @@ export async function runTui(opts: TuiOptions = {}) {
   } else {
     const sessions = listSessions();
     const welcome = buildWelcomeScreen({
-      version: "0.5.0",
+      version: VERSION,
       userName: process.env.USER ?? process.env.USERNAME,
       model: state.currentModel,
       effort: state.config.effort,
