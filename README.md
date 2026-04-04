@@ -87,19 +87,33 @@ Uses your API key (Anthropic, OpenAI, OpenRouter, etc.) to run an AI agent throu
 
 ### 2. Claude Code Agent (local CLI)
 
-Runs Claude Code directly on your machine, remote-controlled from Telegram.
+Runs Claude Code directly on your machine, remote-controlled from Telegram. Same experience as the Claude Code CLI, but from your phone.
 
-```bash
-npm i -g @anthropic-ai/claude-code
-claude login
-```
+> **Requires:** Claude Code installed and logged in on the machine running CamelAGI.
+>
+> ```bash
+> npm i -g @anthropic-ai/claude-code
+> claude login
+> ```
 
-Then:
+1. Open admin bot → `/newagent` → select **Claude Code (local CLI)** → paste bot token
+2. Or use `/claudecode` in any existing agent bot to start on the fly
 
-1. Open admin bot  
-2. Send `/newagent`  
-3. Select Claude Code mode  
-4. Paste bot token  
+#### What Claude Code mode can do
+
+| Category | Capabilities |
+|----------|-------------|
+| **Session** | Start, stop, new session, resume previous sessions |
+| **Models** | Switch between Sonnet 4.6, Opus 4.6, Haiku 4.5 |
+| **Code Actions** | `/review`, `/fix`, `/test`, `/commit`, `/pr`, `/refactor`, `/security`, `/explain`, `/init`, `/doc` |
+| **Settings** | `/model`, `/effort`, `/workdir`, `/tools`, `/prompt`, `/budget`, `/adddir`, `/worktree` |
+| **Voice Input** | Send voice messages — transcribed and processed by Claude Code |
+| **Directory Browser** | Navigate folders via Telegram inline buttons |
+| **Tool Control** | Toggle individual tools on/off (Bash, Read, Write, Edit, etc.) |
+| **Hybrid Mode** | Claude Code gets CamelAGI context — SOUL.md personality, MEMORY.md, daily notes, skills, MCP servers |
+| **CamelAGI API** | Claude Code can access cron jobs, sessions, agents, config via the gateway API |
+| **Streaming** | Real-time response streaming via native Telegram `sendMessageDraft` |
+| **Pinned Status** | "Claude Code ON" pinned in chat, dynamic command menu |
 
 ---
 

@@ -1127,7 +1127,7 @@ export async function setupAgentBot(
 
       if (action === "start") {
         ccPaused.delete(chatId);
-        startTerminal(chatId, ccResolveWorkDir());
+        startTerminal(chatId, ccResolveWorkDir(), undefined, agentId);
         await setCommandMenu(true, chatId);
         await ccPinStatus(chatId, ctx.api, true);
         await ctx.editMessageText("Claude Code started. Send messages.");
@@ -1140,7 +1140,7 @@ export async function setupAgentBot(
       } else if (action === "new") {
         // Start fresh session (clear old sessionId)
         ccPaused.delete(chatId);
-        startTerminal(chatId, ccResolveWorkDir());
+        startTerminal(chatId, ccResolveWorkDir(), undefined, agentId);
         await setCommandMenu(true, chatId);
         await ccPinStatus(chatId, ctx.api, true);
         await ctx.editMessageText("New Claude Code session started.");
@@ -1263,7 +1263,7 @@ export async function setupAgentBot(
       } else if (action.startsWith("resume:")) {
         const sessionId = action.slice("resume:".length);
         ccPaused.delete(chatId);
-        startTerminal(chatId, ccResolveWorkDir(), sessionId);
+        startTerminal(chatId, ccResolveWorkDir(), sessionId, agentId);
         await setCommandMenu(true, chatId);
         await ccPinStatus(chatId, ctx.api, true);
         await ctx.editMessageText(`Resumed session ${sessionId.slice(0, 8)}... Send messages.`);
@@ -1281,7 +1281,7 @@ export async function setupAgentBot(
     if (agentCfg?.mode === "claude-code" && !ccPaused.has(ctx.chat.id)) {
       // Auto-start terminal session for claude-code agents (unless manually exited)
       const workDir = agentCfg.workDir ? expandHome(agentCfg.workDir) : os.homedir() + "/Desktop";
-      startTerminal(ctx.chat.id, workDir);
+      startTerminal(ctx.chat.id, workDir, undefined, agentId);
       if (agentCfg.ccApprovals === "acceptEdits") {
         setTerminalSetting(ctx.chat.id, "permissionMode", "acceptEdits");
       }
@@ -1357,12 +1357,19 @@ export async function setupAgentBot(
         return;
       }
 
-      const cleanText = `[Voice] ${result.text.trim()}`;
+      const transcribedText = result.text.trim();
       slog.info("telegram", "Voice transcribed", {
-        agent: agentId, text: cleanText.slice(0, 160), provider: config.voice.provider,
+        agent: agentId, text: transcribedText.slice(0, 160), provider: config.voice.provider,
       });
 
-      await handleIncoming(ctx, cleanText);
+      // Route to Claude Code if in terminal mode
+      if (hasTerminal(ctx.chat.id)) {
+        // Fake a text message for handleTerminalIncoming
+        ctx.message.text = transcribedText;
+        await handleTerminalIncoming(ctx);
+      } else {
+        await handleIncoming(ctx, `[Voice] ${transcribedText}`);
+      }
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       slog.error("telegram", "Voice processing failed", { agent: agentId, error: errMsg });

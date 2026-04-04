@@ -8,11 +8,14 @@ import { createInterface } from "node:readline";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { loadConfig } from "../core/config.js";
+import { agentMemoryDir } from "../workspace.js";
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
 interface TerminalSession {
   sessionId?: string;   // Claude Code session ID for --resume
+  agentId?: string;     // CamelAGI agent ID for context injection
   workDir: string;      // Working directory for subprocess
   model?: string;       // --model (e.g. "sonnet", "opus")
   effort?: string;      // --effort (low, medium, high, max)
@@ -52,8 +55,8 @@ export function detectClaudeCode(): { found: boolean; path?: string; version?: s
 
 // ─── Session lifecycle ─────────────────────────────────────────────────
 
-export function startTerminal(chatId: number, workDir: string, resumeSessionId?: string): void {
-  sessions.set(chatId, { workDir, busy: false, sessionId: resumeSessionId });
+export function startTerminal(chatId: number, workDir: string, resumeSessionId?: string, agentId?: string): void {
+  sessions.set(chatId, { workDir, busy: false, sessionId: resumeSessionId, agentId });
 }
 
 export function endTerminal(chatId: number): void {
@@ -236,6 +239,84 @@ export async function handleTerminalMessage(
     if (session.addDirs?.length) {
       for (const dir of session.addDirs) {
         args.push("--add-dir", expandHome(dir));
+      }
+    }
+
+    // ─── CamelAGI context injection (hybrid mode) ─────────────────
+    if (session.agentId) {
+      const agentDir = agentMemoryDir(session.agentId);
+
+      // Inject SOUL.md, MEMORY.md, recent memory notes
+      const parts: string[] = [];
+      const soulPath = path.join(agentDir, "SOUL.md");
+      if (fs.existsSync(soulPath)) parts.push(fs.readFileSync(soulPath, "utf-8"));
+
+      const memoryPath = path.join(agentDir, "MEMORY.md");
+      if (fs.existsSync(memoryPath)) parts.push(fs.readFileSync(memoryPath, "utf-8"));
+
+      // Last 3 daily memory notes
+      const memDir = path.join(agentDir, "memory");
+      if (fs.existsSync(memDir)) {
+        const notes = fs.readdirSync(memDir).filter(f => f.endsWith(".md")).sort().reverse().slice(0, 3);
+        for (const note of notes) {
+          parts.push(`## Memory: ${note}\n${fs.readFileSync(path.join(memDir, note), "utf-8")}`);
+        }
+      }
+
+      // Skills
+      const skillsDir = path.join(os.homedir(), ".camelagi", "skills");
+      if (fs.existsSync(skillsDir)) {
+        for (const d of fs.readdirSync(skillsDir)) {
+          const skillFile = path.join(skillsDir, d, "SKILL.md");
+          if (fs.existsSync(skillFile)) {
+            parts.push(`## Skill: ${d}\n${fs.readFileSync(skillFile, "utf-8")}`);
+          }
+        }
+      }
+
+      // CamelAGI API tools — Claude Code can use these via curl
+      const config = loadConfig();
+      const port = config.serve?.port ?? 18305;
+      const token = config.serve?.token;
+      const authHeader = token ? ` -H "Authorization: Bearer ${token}"` : "";
+      parts.push(`## CamelAGI Gateway API (localhost:${port})
+You have access to CamelAGI's gateway API. Use curl to interact with it:
+
+### Cron Jobs
+- List: curl -s${authHeader} http://127.0.0.1:${port}/health | jq
+- The full API is at http://127.0.0.1:${port}
+
+### Sessions
+- List: curl -s${authHeader} http://127.0.0.1:${port}/sessions
+- Read: curl -s${authHeader} http://127.0.0.1:${port}/sessions/{id}/messages
+
+### Agents
+- List: curl -s${authHeader} http://127.0.0.1:${port}/agents
+
+### Config
+- Read: curl -s${authHeader} http://127.0.0.1:${port}/config
+- Update: curl -s -X PATCH${authHeader} -H "Content-Type: application/json" http://127.0.0.1:${port}/config -d '{"key":"value"}'
+
+### Memory
+- Agent memory is at: ${agentDir}
+- Read MEMORY.md and memory/*.md files directly for context
+- Write to MEMORY.md to persist important facts`);
+
+      if (parts.length > 0) {
+        args.push("--append-system-prompt", parts.join("\n\n"));
+      }
+
+      // Agent workspace access
+      args.push("--add-dir", agentDir);
+
+      // MCP servers (user-configured, not built-in)
+      const mcpGlobal = config.mcp?.servers ?? {};
+      const mcpAgent = config.agents[session.agentId]?.mcp?.servers ?? {};
+      const mcpMerged = { ...mcpGlobal, ...mcpAgent };
+      if (Object.keys(mcpMerged).length > 0) {
+        const tmpPath = path.join(os.tmpdir(), `camelagi-mcp-${chatId}.json`);
+        fs.writeFileSync(tmpPath, JSON.stringify({ mcpServers: mcpMerged }));
+        args.push("--mcp-config", tmpPath);
       }
     }
 
