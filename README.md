@@ -134,6 +134,28 @@ Runs Claude Code directly on your machine, remote-controlled from Telegram. Same
 | Usage Tracking | Cost + token monitoring |
 | Agent Cloning | Duplicate agent config |
 | Tool Approvals | Human approval flow |
+| Web Dashboard | Browser-based control panel |
+
+---
+
+## Web Dashboard
+
+A full web dashboard at [camelagi.net/dashboard](https://camelagi.net/dashboard) — or self-host with the website.
+
+1. Start your gateway: `camel serve`
+2. Open `/dashboard` in your browser
+3. Enter gateway URL (`http://127.0.0.1:18305`) + auth token (if configured)
+
+| Page | What it does |
+|------|-------------|
+| **Overview** | Health stats, uptime, active runs, lane utilization, agent list |
+| **Chat** | Chat interface with WebSocket streaming |
+| **Agents** | View all agents — status, model, mode, Telegram connection |
+| **Sessions** | Browse session history, view messages, delete sessions |
+| **Config** | View current configuration |
+| **Monitor** | Live event feed via WebSocket watch mode |
+
+For remote access, use [Tailscale](https://tailscale.com): `camel tailscale serve` or `camel tailscale funnel`.
 
 ---
 
@@ -141,10 +163,11 @@ Runs Claude Code directly on your machine, remote-controlled from Telegram. Same
 
 CamelAGI works across:
 
-- Telegram  
-- Discord  
-- Terminal  
-- Claude Code via Telegram  
+- Telegram
+- Discord
+- Terminal
+- Claude Code via Telegram
+- Web Dashboard  
 
 All channels share the same runtime, tools, and memory.
 
