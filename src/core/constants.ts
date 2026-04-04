@@ -21,6 +21,9 @@ export const QUEUE_WAIT_TIMEOUT_MS = 15_000;
 export const COMPACTION_TRIGGER_RATIO = 0.8;
 export const MEMORY_FLUSH_MAX_CHARS = 30_000;
 
+// Networking
+export const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
+
 // API defaults
 export const DEFAULT_MAX_TOKENS = 4096;
 export const DEFAULT_MAX_TURNS = 25;

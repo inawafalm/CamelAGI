@@ -44,12 +44,12 @@ Examples:
         process.exit(1);
       }
       const config = loadConfig();
-      const value = (config as any)[key];
+      const value = (config as Record<string, unknown>)[key];
       if (value === undefined) {
         console.error(`Unknown key: ${key}`);
         process.exit(1);
       }
-      if (key === "apiKey" && value) {
+      if (key === "apiKey" && typeof value === "string") {
         console.log(`***${value.slice(-4)}`);
       } else {
         console.log(typeof value === "object" ? JSON.stringify(value, null, 2) : value);

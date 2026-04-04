@@ -5,7 +5,7 @@ import * as p from "@clack/prompts";
 import { saveConfig, loadConfig, ensureDirs, paths } from "./core/config.js";
 import { seedWorkspace, seedAgentWorkspace } from "./workspace.js";
 import { PROVIDER_PRESETS, fetchOpenRouterModels } from "./core/models.js";
-import { listPendingRequests, approveRequest } from "./telegram/pairing.js";
+import { listPendingRequests, approveRequest } from "./extensions/pairing.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 

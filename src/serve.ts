@@ -15,7 +15,7 @@ import { configureLane, Lane } from "./runtime/lanes.js";
 import { runBoot } from "./boot.js";
 import { errorMessage } from "./core/errors.js";
 import { log as slog } from "./core/log.js";
-import { HEARTBEAT_INTERVAL_MS } from "./core/constants.js";
+import { HEARTBEAT_INTERVAL_MS, LOOPBACK_HOSTS } from "./core/constants.js";
 import type { GatewayState } from "./gateway/state.js";
 import { registerRoutes } from "./gateway/routes.js";
 import { registerWsHandler } from "./gateway/ws-handler.js";
@@ -76,8 +76,7 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
   const log = opts.silent ? (..._a: unknown[]) => {} : console.log;
 
   // Warn when binding non-loopback without token
-  const LOOPBACK = new Set(["127.0.0.1", "::1", "localhost"]);
-  if (!LOOPBACK.has(host) && !state.token) {
+  if (!LOOPBACK_HOSTS.has(host) && !state.token) {
     console.log(`\n  \x1b[33m⚠  WARNING: Gateway bound to ${host} without auth token.\x1b[0m`);
     console.log(`  \x1b[33m   Set serve.token in config or CAMELAGI_TOKEN env var.\x1b[0m\n`);
   }

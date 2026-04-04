@@ -5,7 +5,7 @@ import * as p from "@clack/prompts";
 import { loadConfig, saveConfig, ensureDirs, paths } from "./core/config.js";
 import { seedWorkspace, seedAgentWorkspace } from "./workspace.js";
 import { PROVIDER_PRESETS, fetchOpenRouterModels } from "./core/models.js";
-import { listPendingRequests, approveRequest } from "./telegram/pairing.js";
+import { listPendingRequests, approveRequest } from "./extensions/pairing.js";
 
 function check<T>(value: T | symbol): T {
   if (p.isCancel(value)) { p.cancel("Setup cancelled."); process.exit(0); }

@@ -6,7 +6,7 @@ import path from "node:path";
 import type { Config } from "../core/config.js";
 import { loadConfig, saveConfig } from "../core/config.js";
 import { seedAgentWorkspace, agentMemoryDir, cloneAgentWorkspace } from "../workspace.js";
-import { requestBotApproval } from "./bot-approval.js";
+import { requestBotApproval } from "../extensions/bot-approval.js";
 import { resolvePreset } from "../core/models.js";
 import type { WizardDef, WizardStep } from "./wizard.js";
 

@@ -16,7 +16,7 @@ import { resolvePreset } from "../core/models.js";
 import { createVoiceWizard, createVoiceResetWizard } from "./voice-wizard.js";
 import type { WizardDef } from "./wizard.js";
 import { formatAge } from "./helpers.js";
-import { approveRequest, denyRequest, listPendingRequests, hasPendingRequest, createPairingRequest } from "./pairing.js";
+import { approveRequest, denyRequest, listPendingRequests, hasPendingRequest, createPairingRequest } from "../extensions/pairing.js";
 import { notifyUserApproved, notifyUserOfDenial } from "./pairing-notify.js";
 import { isGroupChat } from "./helpers.js";
 import {
@@ -24,7 +24,7 @@ import {
   approveBotApproval,
   denyBotApproval,
   type BotApproval,
-} from "./bot-approval.js";
+} from "../extensions/bot-approval.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 

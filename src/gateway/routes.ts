@@ -1,6 +1,6 @@
 // Gateway REST API routes
 
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { loadConfig, saveConfig } from "../core/config.js";
 import { createClient } from "../model.js";
 import { buildSystemPrompt } from "../system-prompt.js";
@@ -13,11 +13,22 @@ import { errorMessage } from "../core/errors.js";
 import { submitDecision, type ApprovalDecision } from "../extensions/approvals.js";
 import fs from "node:fs";
 import path from "node:path";
-import { listPendingRequests, approveRequest, denyRequest } from "../telegram/pairing.js";
-import { listPendingBotApprovals, approveBotApproval, denyBotApproval } from "../telegram/bot-approval.js";
+import { listPendingRequests, approveRequest, denyRequest } from "../extensions/pairing.js";
+import { listPendingBotApprovals, approveBotApproval, denyBotApproval } from "../extensions/bot-approval.js";
 import { notifyUserApproved, notifyUserOfDenial } from "../telegram/pairing-notify.js";
 import type { GatewayState } from "./state.js";
 import { checkAuth, logMessage } from "./state.js";
+
+/** Express middleware that rejects unauthenticated requests with 401 */
+function requireAuth(state: GatewayState) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!checkAuth(state, req.headers.authorization)) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    next();
+  };
+}
 
 export function registerRoutes(app: Express, state: GatewayState): void {
   app.get("/health", (req, res) => {
@@ -37,12 +48,9 @@ export function registerRoutes(app: Express, state: GatewayState): void {
     });
   });
 
-  app.post("/chat", async (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
+  const auth = requireAuth(state);
 
+  app.post("/chat", auth, async (req, res) => {
     const { message, session } = req.body;
     if (!message || typeof message !== "string") {
       res.status(400).json({ error: "message is required" });
@@ -72,26 +80,22 @@ export function registerRoutes(app: Express, state: GatewayState): void {
   });
 
   // Sessions
-  app.get("/sessions", (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.get("/sessions", auth, (_req, res) => {
     res.json(listSessions());
   });
 
-  app.get("/sessions/:id/messages", (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.get("/sessions/:id/messages", auth, (req, res) => {
     const messages = loadMessages(req.params.id);
     res.json(messages.map((m) => ({ role: m.role, content: m.content })));
   });
 
-  app.delete("/sessions/:id", (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.delete("/sessions/:id", auth, (req, res) => {
     deleteSession(req.params.id);
     res.json({ ok: true });
   });
 
   // Agents
-  app.get("/agents", async (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.get("/agents", auth, async (_req, res) => {
     let runningIds: string[] = [];
     try {
       const { getAllChannels } = await import("../channels/registry.js");
@@ -109,8 +113,7 @@ export function registerRoutes(app: Express, state: GatewayState): void {
     res.json(agents);
   });
 
-  app.post("/agents", (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.post("/agents", auth, (req, res) => {
     const { id, name, model, description, telegramToken, allowedUsers } = req.body;
     if (!id || !name) { res.status(400).json({ error: "id and name are required" }); return; }
     if (state.config.agents[id]) { res.status(409).json({ error: `Agent "${id}" already exists` }); return; }
@@ -127,8 +130,7 @@ export function registerRoutes(app: Express, state: GatewayState): void {
     res.status(201).json({ id, name, dir: agentMemoryDir(id) });
   });
 
-  app.delete("/agents/:id", (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.delete("/agents/:id", auth, (req, res) => {
     const { id } = req.params;
     if (!state.config.agents[id]) { res.status(404).json({ error: `Agent "${id}" not found` }); return; }
     const agents = { ...state.config.agents };
@@ -139,8 +141,7 @@ export function registerRoutes(app: Express, state: GatewayState): void {
   });
 
   // SOUL.md
-  app.get("/agents/:id/soul", (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.get("/agents/:id/soul", auth, (req, res) => {
     const { id } = req.params;
     if (!state.config.agents[id]) { res.status(404).json({ error: `Agent "${id}" not found` }); return; }
     const soulPath = path.join(agentMemoryDir(id), "SOUL.md");
@@ -148,8 +149,7 @@ export function registerRoutes(app: Express, state: GatewayState): void {
     res.json({ content: fs.readFileSync(soulPath, "utf-8") });
   });
 
-  app.put("/agents/:id/soul", (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.put("/agents/:id/soul", auth, (req, res) => {
     const { id } = req.params;
     if (!state.config.agents[id]) { res.status(404).json({ error: `Agent "${id}" not found` }); return; }
     const { content } = req.body;
@@ -161,14 +161,12 @@ export function registerRoutes(app: Express, state: GatewayState): void {
   });
 
   // Config
-  app.get("/config", (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.get("/config", auth, (_req, res) => {
     const safe = { ...state.config, apiKey: state.config.apiKey ? `***${state.config.apiKey.slice(-4)}` : undefined };
     res.json(safe);
   });
 
-  app.patch("/config", (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.patch("/config", auth, (req, res) => {
     const updates = req.body;
     if (!updates || typeof updates !== "object") { res.status(400).json({ error: "JSON body required" }); return; }
     delete updates.apiKey;
@@ -181,13 +179,11 @@ export function registerRoutes(app: Express, state: GatewayState): void {
   });
 
   // Pairing
-  app.get("/pairing", (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.get("/pairing", auth, (_req, res) => {
     res.json(listPendingRequests());
   });
 
-  app.post("/pairing/:code/approve", async (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.post("/pairing/:code/approve", auth, async (req, res) => {
     const request = approveRequest(req.params.code);
     if (request) {
       res.json({ ok: true, userId: request.userId, agentId: request.agentId });
@@ -201,8 +197,7 @@ export function registerRoutes(app: Express, state: GatewayState): void {
     }
   });
 
-  app.post("/pairing/:code/deny", async (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.post("/pairing/:code/deny", auth, async (req, res) => {
     const request = denyRequest(req.params.code);
     if (request) {
       res.json({ ok: true });
@@ -217,13 +212,11 @@ export function registerRoutes(app: Express, state: GatewayState): void {
   });
 
   // Bot approvals
-  app.get("/bot-approvals", (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.get("/bot-approvals", auth, (_req, res) => {
     res.json(listPendingBotApprovals());
   });
 
-  app.post("/bot-approvals/:agentId/approve", async (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.post("/bot-approvals/:agentId/approve", auth, async (req, res) => {
     const approval = approveBotApproval(req.params.agentId);
     if (!approval) { res.status(404).json({ error: "Approval not found" }); return; }
 
@@ -236,8 +229,7 @@ export function registerRoutes(app: Express, state: GatewayState): void {
     }
   });
 
-  app.post("/bot-approvals/:agentId/deny", (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.post("/bot-approvals/:agentId/deny", auth, (req, res) => {
     const approval = denyBotApproval(req.params.agentId);
     if (approval) {
       res.json({ ok: true });
@@ -247,8 +239,7 @@ export function registerRoutes(app: Express, state: GatewayState): void {
   });
 
   // Approvals
-  app.post("/approvals/:id/decide", (req, res) => {
-    if (!checkAuth(state, req.headers.authorization)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  app.post("/approvals/:id/decide", auth, (req, res) => {
     const { id } = req.params;
     const { decision } = req.body;
     if (!decision) { res.status(400).json({ error: "decision is required (allow-once, allow-always, deny)" }); return; }

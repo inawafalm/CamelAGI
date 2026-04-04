@@ -1,8 +1,9 @@
 // Agent config resolution for Telegram
+// Builds on the channel-agnostic resolveAgentBase and adds Telegram-specific fields.
 
 import type { Config } from "../core/config.js";
-import { buildSystemPrompt } from "../system-prompt.js";
 import type { ResolvedAgent } from "./types.js";
+import { resolveAgentBase } from "../channels/handler.js";
 
 export interface RuntimeOverrides {
   model?: string;
@@ -23,37 +24,24 @@ export function resolveAgent(
   globalSystemPrompt: string,
   overrides?: RuntimeOverrides,
 ): ResolvedAgent {
-  if (agentId === "telegram") {
-    // Legacy top-level telegram config
-    const briefMode = overrides?.briefMode ?? true;
-    return {
-      id: "telegram",
-      name: "CamelAGI",
-      model: overrides?.model ?? config.model,
-      systemPrompt: globalSystemPrompt + (briefMode ? BRIEF_MODE_INSTRUCTION : ""),
-      thinking: overrides?.thinking ?? config.thinking,
-      effort: overrides?.effort ?? config.effort,
-      maxTurns: config.maxTurns,
-      allowedUsers: config.telegram.allowedUsers,
-      mentionOnly: config.telegram.groups.mentionOnly,
-      briefMode,
-    };
-  }
+  // Use channel-agnostic base resolution (handles override cascade)
+  const baseId = agentId === "telegram" ? "default" : agentId;
+  const base = resolveAgentBase(baseId, config, globalSystemPrompt, overrides);
 
-  const agent = config.agents[agentId];
-  const basePrompt = agent?.systemPrompt ?? config.systemPrompt;
+  // Telegram-specific fields
+  const agent = agentId !== "telegram" ? config.agents[agentId] : undefined;
   const briefMode = overrides?.briefMode ?? (agent?.telegram?.briefMode ?? true);
-  const prompt = buildSystemPrompt(basePrompt, config.skills, agentId);
+
   return {
+    ...base,
     id: agentId,
-    name: agent?.name ?? agentId,
-    model: overrides?.model ?? agent?.model ?? config.model,
-    systemPrompt: prompt + (briefMode ? BRIEF_MODE_INSTRUCTION : ""),
-    thinking: overrides?.thinking ?? (agent?.thinking ?? config.thinking) as Config["thinking"],
-    effort: overrides?.effort ?? (agent?.effort ?? config.effort) as Config["effort"],
-    maxTurns: agent?.maxTurns ?? config.maxTurns,
-    allowedUsers: agent?.telegram?.allowedUsers ?? [],
-    mentionOnly: agent?.telegram?.groups?.mentionOnly ?? true,
+    systemPrompt: base.systemPrompt + (briefMode ? BRIEF_MODE_INSTRUCTION : ""),
+    allowedUsers: agentId === "telegram"
+      ? config.telegram.allowedUsers
+      : (agent?.telegram?.allowedUsers ?? []),
+    mentionOnly: agentId === "telegram"
+      ? config.telegram.groups.mentionOnly
+      : (agent?.telegram?.groups?.mentionOnly ?? true),
     briefMode,
   };
 }

@@ -54,32 +54,17 @@ function extractAssistantText(msg: any): string {
     .join("");
 }
 
-export async function runAgentSdk(
-  apiKey: string,
-  model: string,
-  systemPrompt: string,
-  history: Message[],
-  userMessage: string,
-  opts?: AgentOpts,
-): Promise<RunResult> {
-  // Build effective prompt: if resuming, just use user message.
-  // Otherwise, prepend history as structured context in the prompt itself
-  // (the SDK manages its own conversation state via session resumption).
-  let effectivePrompt = userMessage;
-  if (!opts?.resumeSessionId && history.length > 0) {
-    const historyText = history
-      .map((m) => `[${m.role}]: ${m.content}`)
-      .join("\n\n");
-    effectivePrompt = `<previous_conversation>\n${historyText}\n</previous_conversation>\n\n${userMessage}`;
-  }
+// --- Hook factories ---
 
-  const emit = opts?.onEvent;
-  let toolIdCounter = 0;
-
-  const preToolHook: HookCallback = async (input: Record<string, unknown>) => {
+function createPreToolHook(
+  opts: AgentOpts | undefined,
+  emit: ((event: AgentEvent) => void) | undefined,
+  toolIdCounter: { value: number },
+): HookCallback {
+  return async (input: Record<string, unknown>) => {
     const name = (input.tool_name ?? input.name ?? "tool") as string;
     const args = (input.tool_input ?? input.input ?? {}) as Record<string, unknown>;
-    const toolId = (input.tool_use_id ?? `tool-${++toolIdCounter}`) as string;
+    const toolId = (input.tool_use_id ?? `tool-${++toolIdCounter.value}`) as string;
 
     if (opts?.hooksEnabled) {
       await runHooks("before_tool", {
@@ -126,10 +111,16 @@ export async function runAgentSdk(
 
     return {};
   };
+}
 
-  const postToolHook: HookCallback = async (input: Record<string, unknown>) => {
+function createPostToolHook(
+  opts: AgentOpts | undefined,
+  emit: ((event: AgentEvent) => void) | undefined,
+  toolIdCounter: { value: number },
+): HookCallback {
+  return async (input: Record<string, unknown>) => {
     const name = (input.tool_name ?? input.name ?? "tool") as string;
-    const toolId = (input.tool_use_id ?? `tool-${toolIdCounter}`) as string;
+    const toolId = (input.tool_use_id ?? `tool-${toolIdCounter.value}`) as string;
     const resultText = String(input.tool_result ?? input.result ?? "");
     const preview = resultText.slice(0, 150).replace(/\n/g, "↵");
 
@@ -145,25 +136,26 @@ export async function runAgentSdk(
 
     return {};
   };
+}
 
-  const mcpServer = createCamelAgiMcpServer(opts?.agentId);
+// --- Query options builder ---
 
+function buildQueryOptions(
+  model: string,
+  systemPrompt: string,
+  apiKey: string,
+  opts: AgentOpts | undefined,
+  preToolHook: HookCallback,
+  postToolHook: HookCallback,
+  mcpServer: ReturnType<typeof createSdkMcpServer>,
+): Record<string, unknown> {
+  const emit = opts?.onEvent;
   const thinking = opts?.thinking && opts.thinking !== "off"
     ? { type: "adaptive" as const }
     : { type: "disabled" as const };
 
   const disallowedTools = opts?.toolPolicy?.deny?.length ? opts.toolPolicy.deny : undefined;
 
-  const abortController = opts?.signal ? new AbortController() : undefined;
-  if (opts?.signal && abortController) {
-    if (opts.signal.aborted) abortController.abort();
-    else opts.signal.addEventListener("abort", () => abortController.abort(), { once: true });
-  }
-
-  let result = "";
-  let sdkSessionId: string | undefined;
-
-  // Build options object step-by-step to isolate any spread errors
   const mcpServers = { camelagi: mcpServer, ...(opts?.mcpServers ?? {}) };
   const allowedTools = [
     ...BUILTIN_TOOLS,
@@ -172,7 +164,7 @@ export async function runAgentSdk(
   ];
   const envVars = { ...(process.env ?? {}), ...buildSdkEnv(apiKey, opts?.provider, opts?.baseUrl) };
 
-  const queryOptions: Record<string, unknown> = {
+  const options: Record<string, unknown> = {
     model,
     systemPrompt,
     allowedTools,
@@ -190,17 +182,36 @@ export async function runAgentSdk(
       PostToolUse: [{ matcher: ".*", hooks: [postToolHook] }],
     },
   };
-  if (disallowedTools) queryOptions.disallowedTools = disallowedTools;
-  if (opts?.effort) queryOptions.effort = opts.effort;
-  if (opts?.maxBudgetUsd) queryOptions.maxBudgetUsd = opts.maxBudgetUsd;
-  if (opts?.resumeSessionId) queryOptions.resume = opts.resumeSessionId;
-  if (abortController) queryOptions.abortController = abortController;
+  if (disallowedTools) options.disallowedTools = disallowedTools;
+  if (opts?.effort) options.effort = opts.effort;
+  if (opts?.maxBudgetUsd) options.maxBudgetUsd = opts.maxBudgetUsd;
+  if (opts?.resumeSessionId) options.resume = opts.resumeSessionId;
 
-  const q = query({ prompt: effectivePrompt, options: queryOptions as any });
+  // Abort signal bridging
+  if (opts?.signal) {
+    const ac = new AbortController();
+    if (opts.signal.aborted) ac.abort();
+    else opts.signal.addEventListener("abort", () => ac.abort(), { once: true });
+    options.abortController = ac;
+  }
 
-  // The for-await loop may throw if the SDK subprocess exits unexpectedly
-  // (e.g. non-Claude models via OpenRouter). If we already captured a result
-  // from "assistant" messages, we still want to return it.
+  return options;
+}
+
+// --- SDK message processing ---
+
+interface SdkStreamState {
+  result: string;
+  sdkSessionId: string | undefined;
+}
+
+async function processSdkMessages(
+  q: AsyncIterable<unknown>,
+  emit: ((event: AgentEvent) => void) | undefined,
+  opts: AgentOpts | undefined,
+): Promise<SdkStreamState> {
+  const state: SdkStreamState = { result: "", sdkSessionId: undefined };
+
   try {
     for await (const message of q) {
       const msg = message as any;
@@ -209,21 +220,17 @@ export async function runAgentSdk(
       // with the response text instead of a final "result" message.
       const assistantText = extractAssistantText(msg);
       if (assistantText) {
-        result = assistantText;
-        if (msg.session_id) sdkSessionId = msg.session_id;
+        state.result = assistantText;
+        if (msg.session_id) state.sdkSessionId = msg.session_id;
       }
 
-      if (message.type === "result") {
-        const resultMsg = message as unknown as {
+      if (msg.type === "result") {
+        const resultMsg = msg as {
           type: "result"; result: string; session_id?: string;
           usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
         };
-        // Only overwrite if non-empty (non-Claude models return text via
-        // "assistant" messages; the trailing "result" may be empty).
-        if (resultMsg.result) {
-          result = resultMsg.result;
-        }
-        sdkSessionId = resultMsg.session_id ?? sdkSessionId;
+        if (resultMsg.result) state.result = resultMsg.result;
+        state.sdkSessionId = resultMsg.session_id ?? state.sdkSessionId;
 
         if (resultMsg.usage && emit) {
           emit({ type: "usage", inputTokens: resultMsg.usage.input_tokens ?? 0, outputTokens: resultMsg.usage.output_tokens ?? 0, cacheReadTokens: resultMsg.usage.cache_read_input_tokens, cacheWriteTokens: resultMsg.usage.cache_creation_input_tokens });
@@ -231,15 +238,15 @@ export async function runAgentSdk(
         if (resultMsg.usage && opts?.sessionId) {
           recordUsage(opts.sessionId, { inputTokens: resultMsg.usage.input_tokens ?? 0, outputTokens: resultMsg.usage.output_tokens ?? 0, cacheReadTokens: resultMsg.usage.cache_read_input_tokens ?? 0, cacheWriteTokens: resultMsg.usage.cache_creation_input_tokens ?? 0 });
         }
-        emit?.({ type: "chunk", text: result });
-      } else if (message.type === "system" && emit) {
-        const sysMsg = message as unknown as { type: "system"; subtype?: string; session_id?: string; agent_id?: string; task_id?: string; tool_use_id?: string; tool_count?: number; duration_ms?: number };
-        if (sysMsg.subtype === "init" && sysMsg.session_id) { sdkSessionId = sysMsg.session_id; emit({ type: "init", sessionId: sysMsg.session_id }); }
+        emit?.({ type: "chunk", text: state.result });
+      } else if (msg.type === "system" && emit) {
+        const sysMsg = msg as { type: "system"; subtype?: string; session_id?: string; agent_id?: string; task_id?: string; tool_use_id?: string; tool_count?: number; duration_ms?: number };
+        if (sysMsg.subtype === "init" && sysMsg.session_id) { state.sdkSessionId = sysMsg.session_id; emit({ type: "init", sessionId: sysMsg.session_id }); }
         else if (sysMsg.subtype === "task_started") { emit({ type: "subagent_start", agentId: sysMsg.agent_id ?? "subagent", taskId: sysMsg.task_id }); }
         else if (sysMsg.subtype === "task_progress") { emit({ type: "subagent_progress", agentId: sysMsg.agent_id ?? "subagent", toolCount: sysMsg.tool_count, duration: sysMsg.duration_ms ? Math.round(sysMsg.duration_ms / 1000) : undefined }); }
         else if (sysMsg.subtype === "task_notification") { emit({ type: "subagent_done", agentId: sysMsg.agent_id ?? "subagent", toolUseId: sysMsg.tool_use_id }); }
-      } else if (message.type === "stream_event" && emit) {
-        const streamMsg = message as unknown as { type: "stream_event"; event: { type: string; content_block?: { type: string }; delta?: { type: string; text?: string; thinking?: string } } };
+      } else if (msg.type === "stream_event" && emit) {
+        const streamMsg = msg as { type: "stream_event"; event: { type: string; content_block?: { type: string }; delta?: { type: string; text?: string; thinking?: string } } };
         const event = streamMsg.event;
         if (event.type === "content_block_start" && event.content_block?.type === "thinking") { emit({ type: "thinking", state: "start" }); }
         else if (event.type === "content_block_delta") {
@@ -252,8 +259,43 @@ export async function runAgentSdk(
   } catch (err: unknown) {
     // If the subprocess exited but we already have a response, return it.
     // Otherwise, re-throw so the retry/error handling picks it up.
-    if (!result) throw err;
+    if (!state.result) throw err;
   }
+
+  return state;
+}
+
+// --- Main entry point ---
+
+export async function runAgentSdk(
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  history: Message[],
+  userMessage: string,
+  opts?: AgentOpts,
+): Promise<RunResult> {
+  // Build effective prompt: if resuming, just use user message.
+  // Otherwise, prepend history as structured context in the prompt itself
+  // (the SDK manages its own conversation state via session resumption).
+  let effectivePrompt = userMessage;
+  if (!opts?.resumeSessionId && history.length > 0) {
+    const historyText = history
+      .map((m) => `[${m.role}]: ${m.content}`)
+      .join("\n\n");
+    effectivePrompt = `<previous_conversation>\n${historyText}\n</previous_conversation>\n\n${userMessage}`;
+  }
+
+  const emit = opts?.onEvent;
+  const toolIdCounter = { value: 0 };
+
+  const preToolHook = createPreToolHook(opts, emit, toolIdCounter);
+  const postToolHook = createPostToolHook(opts, emit, toolIdCounter);
+  const mcpServer = createCamelAgiMcpServer(opts?.agentId);
+  const queryOptions = buildQueryOptions(model, systemPrompt, apiKey, opts, preToolHook, postToolHook, mcpServer);
+
+  const q = query({ prompt: effectivePrompt, options: queryOptions as any });
+  const { result, sdkSessionId } = await processSdkMessages(q, emit, opts);
 
   const userMsg: Message = { role: "user", content: userMessage };
   const aiMsg: Message = { role: "assistant", content: result };

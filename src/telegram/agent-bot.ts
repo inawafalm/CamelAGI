@@ -19,7 +19,7 @@ import type { BotState } from "./types.js";
 import { resolveAgent } from "./resolve.js";
 import { createDraftStream } from "./draft-stream.js";
 import { isGroupChat, shouldRespondInGroup, stripMention, sendChunked, startPolling } from "./helpers.js";
-import { hasPendingRequest, createPairingRequest } from "./pairing.js";
+import { hasPendingRequest, createPairingRequest } from "../extensions/pairing.js";
 import { notifyAdminOfPairing } from "./pairing-notify.js";
 import { listSkillNames } from "../extensions/skills.js";
 import { classifyError } from "../runtime/retry.js";

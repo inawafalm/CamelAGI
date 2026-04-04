@@ -34,13 +34,17 @@ export async function chatDirect(
     .map((b) => b.text)
     .join("");
 
+  const usage = response.usage as typeof response.usage & {
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
   return {
     content: text,
     usage: {
-      inputTokens: response.usage.input_tokens,
-      outputTokens: response.usage.output_tokens,
-      cacheReadTokens: (response.usage as any).cache_read_input_tokens ?? 0,
-      cacheWriteTokens: (response.usage as any).cache_creation_input_tokens ?? 0,
+      inputTokens: usage.input_tokens,
+      outputTokens: usage.output_tokens,
+      cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+      cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
     },
   };
 }

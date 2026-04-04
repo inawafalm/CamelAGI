@@ -13,6 +13,37 @@ const sessionsDir = path.join(configDir, "sessions");
 
 export const paths = { configDir, configFile, sessionsDir };
 
+/** MCP server config: stdio, http, or sse transport */
+const mcpServerEntry = z.preprocess(
+  // Default type to "stdio" for backward compat (existing configs omit it)
+  (val) => {
+    if (val && typeof val === "object" && !("type" in (val as Record<string, unknown>))) {
+      return { ...(val as Record<string, unknown>), type: "stdio" };
+    }
+    return val;
+  },
+  z.discriminatedUnion("type", [
+    z.object({
+      type: z.literal("stdio"),
+      command: z.string(),
+      args: z.array(z.string()).default([]),
+      env: z.record(z.string(), z.string()).default({}),
+    }),
+    z.object({
+      type: z.literal("http"),
+      url: z.string(),
+      headers: z.record(z.string(), z.string()).default({}),
+    }),
+    z.object({
+      type: z.literal("sse"),
+      url: z.string(),
+      headers: z.record(z.string(), z.string()).default({}),
+    }),
+  ]),
+);
+
+const mcpServersSchema = z.record(z.string(), mcpServerEntry).default({});
+
 const schema = z.object({
   provider: z.enum(["anthropic", "openai"]).default("anthropic"),
   model: z.string().default("claude-sonnet-4-20250514"),
@@ -65,33 +96,7 @@ const schema = z.object({
     deny: z.array(z.string()).default([]),
   }).default(() => ({ enabled: true, deny: [] })),
   mcp: z.object({
-    servers: z.record(z.string(), z.preprocess(
-      // Default type to "stdio" for backward compat (existing configs omit it)
-      (val) => {
-        if (val && typeof val === "object" && !("type" in (val as Record<string, unknown>))) {
-          return { ...(val as Record<string, unknown>), type: "stdio" };
-        }
-        return val;
-      },
-      z.discriminatedUnion("type", [
-        z.object({
-          type: z.literal("stdio"),
-          command: z.string(),
-          args: z.array(z.string()).default([]),
-          env: z.record(z.string(), z.string()).default({}),
-        }),
-        z.object({
-          type: z.literal("http"),
-          url: z.string(),
-          headers: z.record(z.string(), z.string()).default({}),
-        }),
-        z.object({
-          type: z.literal("sse"),
-          url: z.string(),
-          headers: z.record(z.string(), z.string()).default({}),
-        }),
-      ]),
-    )).default({}),
+    servers: mcpServersSchema,
   }).default(() => ({ servers: {} })),
   hooks: z.object({
     enabled: z.boolean().default(false),
@@ -132,32 +137,7 @@ const schema = z.object({
     effort: z.enum(["low", "medium", "high", "max"]).optional(),
     maxTurns: z.number().optional(),
     mcp: z.object({
-      servers: z.record(z.string(), z.preprocess(
-        (val) => {
-          if (val && typeof val === "object" && !("type" in (val as Record<string, unknown>))) {
-            return { ...(val as Record<string, unknown>), type: "stdio" };
-          }
-          return val;
-        },
-        z.discriminatedUnion("type", [
-          z.object({
-            type: z.literal("stdio"),
-            command: z.string(),
-            args: z.array(z.string()).default([]),
-            env: z.record(z.string(), z.string()).default({}),
-          }),
-          z.object({
-            type: z.literal("http"),
-            url: z.string(),
-            headers: z.record(z.string(), z.string()).default({}),
-          }),
-          z.object({
-            type: z.literal("sse"),
-            url: z.string(),
-            headers: z.record(z.string(), z.string()).default({}),
-          }),
-        ]),
-      )).default({}),
+      servers: mcpServersSchema,
     }).optional(),
     telegram: z.object({
       botToken: z.string(),

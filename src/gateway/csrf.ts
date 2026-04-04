@@ -2,8 +2,7 @@
 
 import type { Request, Response, NextFunction } from "express";
 import { checkAuth, type GatewayState } from "./state.js";
-
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+import { LOOPBACK_HOSTS } from "../core/constants.js";
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 function isLoopbackOrigin(raw: string): boolean {

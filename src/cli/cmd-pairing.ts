@@ -1,7 +1,7 @@
 // CLI command: camelagi pairing — manage pairing requests from the terminal
 
 import { register } from "./registry.js";
-import { listPendingRequests, approveRequest, denyRequest } from "../telegram/pairing.js";
+import { listPendingRequests, approveRequest, denyRequest } from "../extensions/pairing.js";
 
 register({
   name: "pairing",

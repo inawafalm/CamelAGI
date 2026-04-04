@@ -3,7 +3,7 @@
 import { InlineKeyboard } from "grammy";
 import type { Config } from "../core/config.js";
 import type { BotState } from "./types.js";
-import type { PairingRequest } from "./pairing.js";
+import type { PairingRequest } from "../extensions/pairing.js";
 
 /** Send pairing notification to all admin bots */
 export function notifyAdminOfPairing(
