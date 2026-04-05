@@ -140,20 +140,32 @@ Runs Claude Code directly on your machine, remote-controlled from Telegram. Same
 
 ## Web Dashboard
 
-A full web dashboard at [camelagi.net/dashboard](https://camelagi.net/dashboard) — or self-host with the website.
+A full 15-page dashboard served locally from the gateway. ChatGPT-style UI with light/dark mode.
 
-1. Start your gateway: `camel serve`
-2. Open `/dashboard` in your browser
-3. Enter gateway URL (`http://127.0.0.1:18305`) + auth token (if configured)
+```bash
+camel serve
+# Open http://127.0.0.1:18305/dashboard
+```
+
+Auto-connects to the gateway — no URL or token needed for local use.
 
 | Page | What it does |
 |------|-------------|
-| **Overview** | Health stats, uptime, active runs, lane utilization, agent list |
-| **Chat** | Chat interface with WebSocket streaming |
-| **Agents** | View all agents — status, model, mode, Telegram connection |
-| **Sessions** | Browse session history, view messages, delete sessions |
-| **Config** | View current configuration |
-| **Monitor** | Live event feed via WebSocket watch mode |
+| **Overview** | Health stats, uptime, active runs, lane utilization, agents |
+| **Chat** | Real-time streaming, tool cards, thinking blocks, markdown, agent/model/thinking/effort selectors, session sidebar, file upload |
+| **Agents** | Create, delete, clone agents. Edit SOUL.md inline |
+| **Sessions** | Browse history, view messages, delete, export as markdown |
+| **Config** | Editable form (model, provider, thinking, effort, system prompt) + raw JSON |
+| **Monitor** | Live WebSocket event feed |
+| **Workspace** | Edit SOUL.md, TOOLS.md, MEMORY.md, HEARTBEAT.md per agent. Browse daily memory notes |
+| **Cron Jobs** | View scheduled tasks with status |
+| **Skills** | List installed skills |
+| **Pairing** | Approve/deny user access requests |
+| **MCP Servers** | Global + per-agent MCP server listing |
+| **Channels** | Telegram/Discord bot status |
+| **Voice** | Configure transcription provider (Groq/OpenAI/Deepgram) |
+| **Logs** | Auto-refreshing server request log |
+| **Settings** | Gateway URL/token (for remote connections) |
 
 For remote access, use [Tailscale](https://tailscale.com): `camel tailscale serve` or `camel tailscale funnel`.
 
