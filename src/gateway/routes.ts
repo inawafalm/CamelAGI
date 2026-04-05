@@ -13,6 +13,7 @@ import { errorMessage } from "../core/errors.js";
 import { submitDecision, type ApprovalDecision } from "../extensions/approvals.js";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { listPendingRequests, approveRequest, denyRequest } from "../extensions/pairing.js";
 import { listPendingBotApprovals, approveBotApproval, denyBotApproval } from "../extensions/bot-approval.js";
 import { notifyUserApproved, notifyUserOfDenial } from "../telegram/pairing-notify.js";
@@ -245,5 +246,176 @@ export function registerRoutes(app: Express, state: GatewayState): void {
     if (!decision) { res.status(400).json({ error: "decision is required (allow-once, allow-always, deny)" }); return; }
     const resolved = submitDecision(id, decision as ApprovalDecision);
     res.json({ ok: resolved });
+  });
+
+  // ─── Agent workspace files ──────────────────────────────────────
+  app.get("/agents/:id/workspace/:file", auth, (req, res) => {
+    const { id, file } = req.params;
+    const allowed = ["SOUL.md", "TOOLS.md", "MEMORY.md", "HEARTBEAT.md"];
+    if (!allowed.includes(file)) return res.status(400).json({ error: "Invalid file" });
+    const filePath = path.join(agentMemoryDir(id), file);
+    const content = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf-8") : "";
+    res.json({ content });
+  });
+
+  app.put("/agents/:id/workspace/:file", auth, (req, res) => {
+    const { id, file } = req.params;
+    const allowed = ["SOUL.md", "TOOLS.md", "MEMORY.md", "HEARTBEAT.md"];
+    if (!allowed.includes(file)) return res.status(400).json({ error: "Invalid file" });
+    const { content } = req.body;
+    if (typeof content !== "string") return res.status(400).json({ error: "content required" });
+    const filePath = path.join(agentMemoryDir(id), file);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, content);
+    res.json({ ok: true });
+  });
+
+  // Agent memory notes list
+  app.get("/agents/:id/memory", auth, (req, res) => {
+    const memDir = path.join(agentMemoryDir(req.params.id), "memory");
+    if (!fs.existsSync(memDir)) return res.json([]);
+    const files = fs.readdirSync(memDir).filter(f => f.endsWith(".md")).sort().reverse();
+    const notes = files.map(f => ({
+      name: f,
+      content: fs.readFileSync(path.join(memDir, f), "utf-8"),
+      size: fs.statSync(path.join(memDir, f)).size,
+    }));
+    res.json(notes);
+  });
+
+  // ─── Cron jobs ──────────────────────────────────────────────────
+  app.get("/cron", auth, async (_req, res) => {
+    const { getAllJobStatuses } = await import("../extensions/cron.js");
+    res.json(getAllJobStatuses());
+  });
+
+  // ─── Usage ──────────────────────────────────────────────────────
+  app.get("/usage/:sessionId", auth, async (req, res) => {
+    const { getSessionUsage } = await import("../usage.js");
+    const usage = getSessionUsage(req.params.sessionId);
+    res.json(usage);
+  });
+
+  // ─── Skills ─────────────────────────────────────────────────────
+  app.get("/skills", auth, async (_req, res) => {
+    const { listSkillNames } = await import("../extensions/skills.js");
+    const skills = listSkillNames();
+    res.json(skills);
+  });
+
+  // ─── Export ─────────────────────────────────────────────────────
+  app.get("/sessions/:id/export", auth, (req, res) => {
+    const messages = loadMessages(req.params.id);
+    const lines = messages.map(m => {
+      const prefix = m.role === "user" ? "**You:**" : m.role === "assistant" ? "**Assistant:**" : `**${m.role}:**`;
+      return `${prefix}\n\n${m.content}\n\n---\n`;
+    });
+    const md = `# Session: ${req.params.id}\n\n${lines.join("\n")}`;
+    res.setHeader("Content-Type", "text/markdown");
+    res.setHeader("Content-Disposition", `attachment; filename="${req.params.id}.md"`);
+    res.send(md);
+  });
+
+  // ─── MCP servers ────────────────────────────────────────────────
+  app.get("/mcp", auth, (_req, res) => {
+    const config = state.config;
+    const global = config.mcp?.servers ?? {};
+    const perAgent: Record<string, Record<string, unknown>> = {};
+    for (const [id, agent] of Object.entries(config.agents)) {
+      if (agent.mcp?.servers && Object.keys(agent.mcp.servers).length > 0) {
+        perAgent[id] = agent.mcp.servers as Record<string, unknown>;
+      }
+    }
+    res.json({ global, perAgent });
+  });
+
+  // ─── Clone agent ────────────────────────────────────────────────
+  app.post("/agents/:id/clone", auth, async (req, res) => {
+    const sourceId = req.params.id;
+    const { newId, newName } = req.body;
+    if (!newId || !newName) return res.status(400).json({ error: "newId and newName required" });
+
+    const config = state.config;
+    const source = config.agents[sourceId];
+    if (!source) return res.status(404).json({ error: "Source agent not found" });
+    if (config.agents[newId]) return res.status(409).json({ error: "Agent ID already exists" });
+
+    // Clone config (without telegram token)
+    const cloned: Record<string, unknown> = { ...source, name: newName };
+    delete (cloned as any).telegram;
+    delete (cloned as any).admin;
+
+    const agents = { ...config.agents, [newId]: cloned };
+    const { saveConfig: save } = await import("../core/config.js");
+    save({ agents });
+
+    // Clone workspace files
+    seedAgentWorkspace(newId, newName);
+    const sourceDir = agentMemoryDir(sourceId);
+    const destDir = agentMemoryDir(newId);
+    for (const file of ["SOUL.md", "TOOLS.md", "MEMORY.md", "HEARTBEAT.md"]) {
+      const src = path.join(sourceDir, file);
+      if (fs.existsSync(src)) {
+        fs.copyFileSync(src, path.join(destDir, file));
+      }
+    }
+
+    res.status(201).json({ id: newId, name: newName });
+  });
+
+  // ─── Channel status ─────────────────────────────────────────────
+  app.get("/channels", auth, (_req, res) => {
+    const config = state.config;
+    const channels: { id: string; name: string; type: string; running: boolean; username?: string }[] = [];
+
+    for (const [id, agent] of Object.entries(config.agents)) {
+      if (agent.telegram?.botToken) {
+        channels.push({ id, name: agent.name, type: "telegram", running: true });
+      }
+      if (agent.discord?.botToken) {
+        channels.push({ id, name: agent.name, type: "discord", running: true });
+      }
+    }
+
+    res.json(channels);
+  });
+
+  // ─── Logs ───────────────────────────────────────────────────────
+  app.get("/logs", auth, (req, res) => {
+    const logDir = path.join(os.homedir(), ".camelagi", "logs");
+    const logFile = path.join(logDir, "requests.log");
+    if (!fs.existsSync(logFile)) return res.json([]);
+
+    const content = fs.readFileSync(logFile, "utf-8");
+    const lines = content.trim().split("\n").filter(Boolean).slice(-100);
+    res.json(lines);
+  });
+
+  // ─── Models ─────────────────────────────────────────────────────
+  app.get("/models", auth, async (_req, res) => {
+    const { resolvePreset, fetchOpenRouterModels } = await import("../core/models.js");
+    const preset = resolvePreset(state.config.provider, state.config.baseUrl);
+    let models = [...preset.models];
+
+    if (state.config.baseUrl?.includes("openrouter") && state.config.apiKey) {
+      const live = await fetchOpenRouterModels(state.config.apiKey);
+      if (live.length > 0) {
+        const presetSet = new Set(preset.models);
+        const rest = live.map(m => m.id).filter(id => !presetSet.has(id));
+        models = [...preset.models, ...rest];
+      }
+    }
+
+    res.json(models);
+  });
+
+  // ─── Pending approvals list ─────────────────────────────────────
+  app.get("/approvals/pending", auth, async (_req, res) => {
+    try {
+      const { pendingCount } = await import("../extensions/approvals.js");
+      res.json({ count: pendingCount() });
+    } catch {
+      res.json({ count: 0 });
+    }
   });
 }

@@ -23,6 +23,7 @@ import { requestLogger } from "./gateway/logger.js";
 import { rateLimit } from "./gateway/rate-limit.js";
 import { csrfProtection } from "./gateway/csrf.js";
 import fs from "node:fs";
+import path from "node:path";
 
 export interface ServeOpts {
   port?: number;
@@ -82,6 +83,18 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
   }
 
   const app = express();
+
+  // Serve dashboard static files BEFORE rate limiter / CSRF
+  const dashboardDir = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "dashboard");
+  if (fs.existsSync(dashboardDir)) {
+    // Static assets (CSS, JS, fonts) — basePath is /dashboard so paths are /dashboard/_next/...
+    app.use("/dashboard", express.static(dashboardDir));
+    // SPA fallback — all dashboard routes serve index.html
+    app.get("/dashboard/*", (_req, res) => {
+      res.sendFile(path.join(dashboardDir, "index.html"));
+    });
+  }
+
   app.use(express.json({ limit: "1mb" }));
   app.use(csrfProtection(state));
   if (!opts.silent) {

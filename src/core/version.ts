@@ -1,3 +1,3 @@
 // Auto-synced with package.json version
-export const VERSION = "0.5.40";
+export const VERSION = "0.5.42";
 export const NAME = "camelagi";

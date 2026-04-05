@@ -46,13 +46,15 @@ export async function runSetup() {
   const mode = check(await p.select({
     message: "How do you want to use CamelAGI?",
     options: [
-      { value: "tui",      label: "Terminal (TUI)",       hint: "Just need an API key" },
-      { value: "telegram",  label: "Telegram",             hint: "Admin bot + agents from Telegram" },
-      { value: "both",      label: "Both",                 hint: "Terminal + Telegram" },
+      { value: "tui",        label: "Terminal (TUI)",       hint: "Just need an API key" },
+      { value: "telegram",   label: "Telegram",             hint: "Admin bot + agents from Telegram" },
+      { value: "dashboard",  label: "Dashboard (Web UI)",   hint: "Browser-based control panel" },
+      { value: "both",       label: "Both",                 hint: "Terminal + Telegram" },
     ],
   }));
 
   const wantsTelegram = mode === "telegram" || mode === "both";
+  const wantsDashboard = mode === "dashboard";
 
   // ── 1. API Provider ─────────────────────────────────────────────
 
@@ -85,7 +87,23 @@ export async function runSetup() {
 
   p.note(lines.join("\n"), "Setup complete");
 
-  if (wantsTelegram) {
+  if (wantsDashboard) {
+    const port = config.serve?.port ?? 18305;
+    p.outro("Starting server + opening dashboard...");
+
+    const { startServer } = await import("./serve.js");
+    await startServer({ port, cron: true, boot: true });
+
+    const url = `http://127.0.0.1:${port}`;
+    const dashUrl = `${url}/dashboard`;
+
+    // Open local dashboard in browser
+    const { exec } = await import("node:child_process");
+    const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+    exec(`${openCmd} ${dashUrl}`);
+
+    p.log.success(`Dashboard: ${dashUrl}`);
+  } else if (wantsTelegram) {
     p.outro("Run \x1b[36mcamel serve\x1b[0m to start the server.");
   } else {
     p.outro("Run \x1b[36mcamel chat\x1b[0m to start chatting.");
