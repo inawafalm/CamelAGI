@@ -27,6 +27,7 @@ import "./cli/cmd-status.js";
 import "./cli/cmd-connect.js";
 import "./cli/cmd-tailscale.js";
 import "./cli/cmd-watch.js";
+import "./cli/cmd-dashboard.js";
 
 const args = process.argv.slice(2);
 
@@ -58,7 +59,7 @@ if (args[0] === "--help" || args[0] === "-h" || args.length === 0) {
 
   const categorize: Record<string, string> = {
     bootstrap: "Getting Started", setup: "Getting Started", chat: "Getting Started",
-    serve: "Server", daemon: "Server", logs: "Server", status: "Server", connect: "Server", tailscale: "Server", watch: "Server",
+    serve: "Server", dashboard: "Server", daemon: "Server", logs: "Server", status: "Server", connect: "Server", tailscale: "Server", watch: "Server",
     agents: "Agents & Sessions", soul: "Agents & Sessions", sessions: "Agents & Sessions", pairing: "Agents & Sessions",
     config: "Configuration", cron: "Configuration",
     doctor: "Maintenance", reset: "Maintenance", install: "Maintenance", uninstall: "Maintenance",

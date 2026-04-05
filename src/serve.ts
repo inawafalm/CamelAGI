@@ -173,6 +173,11 @@ export async function startServer(opts: ServeOpts = {}): Promise<ServerHandle> {
     const agentStr = agents.join(", ");
     console.log(`  \x1b[36m│\x1b[0m  Agents ${agentStr}${" ".repeat(Math.max(0, 29 - agentStr.length))} \x1b[36m│\x1b[0m`);
   }
+  const dashUrl = `http://${host}:${actualPort}/dashboard`;
+  if (fs.existsSync(dashboardDir)) {
+    console.log(`  \x1b[36m│\x1b[0m                                     \x1b[36m│\x1b[0m`);
+    console.log(`  \x1b[36m│\x1b[0m  \x1b[1m\x1b[33mDashboard\x1b[0m ${dashUrl}${" ".repeat(Math.max(0, 26 - dashUrl.length))} \x1b[36m│\x1b[0m`);
+  }
   console.log(`  \x1b[36m╰─────────────────────────────────────╯\x1b[0m`);
   console.log("");
 
