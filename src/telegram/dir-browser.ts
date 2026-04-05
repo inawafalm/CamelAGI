@@ -12,6 +12,7 @@ interface BrowseState {
   currentDir: string;
   messageId?: number;
   onSelect: (dir: string) => void;
+  cleanup?: ReturnType<typeof setTimeout>;
 }
 
 const states = new Map<number, BrowseState>();
@@ -66,6 +67,9 @@ export async function startBrowse(
   const dir = startDir.startsWith("~") ? startDir.replace("~", os.homedir()) : startDir;
   const state: BrowseState = { currentDir: dir, onSelect };
 
+  // Auto-cleanup after 1 hour
+  state.cleanup = setTimeout(() => { states.delete(chatId); }, 60 * 60 * 1000);
+
   const kb = buildKeyboard(dir);
   const sent = await api.sendMessage(chatId, `📂 Select working directory:\n${displayPath(dir)}`, {
     reply_markup: kb,
@@ -84,6 +88,7 @@ export async function handleBrowseCallback(
   if (!state) return false;
 
   if (value === "__select__") {
+    clearTimeout(state.cleanup);
     states.delete(chatId);
     // Edit the message to show final selection
     if (state.messageId) {
@@ -99,6 +104,12 @@ export async function handleBrowseCallback(
     state.currentDir = path.dirname(state.currentDir);
   } else {
     const newDir = path.join(state.currentDir, value);
+    const normalized = path.normalize(newDir);
+    // Prevent escaping user's home directory
+    const home = os.homedir();
+    if (!normalized.startsWith(home) && normalized !== "/") {
+      return true; // Reject silently
+    }
     if (fs.existsSync(newDir) && fs.statSync(newDir).isDirectory()) {
       state.currentDir = newDir;
     }

@@ -41,12 +41,14 @@ export function createDraftStream(
       await (api as any).sendMessageDraft(chatId, draftId, html, { parse_mode: "HTML" });
       lastSentText = trimmed;
       return true;
-    } catch {
+    } catch (err) {
+      console.warn("[draft-stream] sendMessageDraft failed, falling back to edit mode");
       try {
         await (api as any).sendMessageDraft(chatId, draftId, text.slice(0, 4096));
         lastSentText = text.slice(0, 4096);
         return true;
-      } catch {
+      } catch (err) {
+        console.warn("[draft-stream] sendMessageDraft failed, falling back to edit mode");
         return false; // native not supported, fall back
       }
     }

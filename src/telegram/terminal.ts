@@ -28,6 +28,7 @@ interface TerminalSession {
   pinnedMessageId?: number; // Telegram pinned status message
   addDirs?: string[];   // --add-dir
   busy: boolean;        // True while a claude process is running
+  createdAt: number;    // Timestamp for session TTL cleanup
 }
 
 export interface TerminalEvent {
@@ -40,6 +41,17 @@ export interface TerminalEvent {
 // ─── State ─────────────────────────────────────────────────────────────
 
 const sessions = new Map<number, TerminalSession>();
+
+// Clean up sessions older than 24 hours
+setInterval(() => {
+  const MAX_AGE = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  for (const [chatId, session] of sessions) {
+    if (session.createdAt && now - session.createdAt > MAX_AGE) {
+      sessions.delete(chatId);
+    }
+  }
+}, 60 * 60 * 1000); // Every hour
 
 // ─── Detection ─────────────────────────────────────────────────────────
 
@@ -56,7 +68,7 @@ export function detectClaudeCode(): { found: boolean; path?: string; version?: s
 // ─── Session lifecycle ─────────────────────────────────────────────────
 
 export function startTerminal(chatId: number, workDir: string, resumeSessionId?: string, agentId?: string): void {
-  sessions.set(chatId, { workDir, busy: false, sessionId: resumeSessionId, agentId });
+  sessions.set(chatId, { workDir, busy: false, sessionId: resumeSessionId, agentId, createdAt: Date.now() });
 }
 
 export function endTerminal(chatId: number): void {
@@ -188,6 +200,13 @@ export function listClaudeSessions(workDir?: string): ClaudeSession[] {
   }
 }
 
+// ─── Child process tracking ───────────────────────────────────────────
+
+const activeChildren = new Set<import("node:child_process").ChildProcess>();
+
+process.on("SIGTERM", () => { for (const c of activeChildren) c.kill("SIGTERM"); });
+process.on("SIGINT", () => { for (const c of activeChildren) c.kill("SIGTERM"); });
+
 // ─── Core handler ──────────────────────────────────────────────────────
 
 export async function handleTerminalMessage(
@@ -197,7 +216,7 @@ export async function handleTerminalMessage(
 ): Promise<{ response: string; sessionId?: string }> {
   const session = sessions.get(chatId);
   if (!session) throw new Error("No terminal session");
-
+  if (session.busy) throw new Error("Claude Code is busy");
   session.busy = true;
 
   try {
@@ -325,47 +344,57 @@ You have access to CamelAGI's gateway API. Use curl to interact with it:
       stdio: ["ignore", "pipe", "pipe"],
     });
 
+    activeChildren.add(child);
+
+    // 15-minute timeout
+    const processTimeout = setTimeout(() => { child.kill("SIGTERM"); }, 15 * 60 * 1000);
+
     let result = "";
     let resultSessionId: string | undefined;
 
     const rl = createInterface({ input: child.stdout! });
+    try {
+      for await (const line of rl) {
+        if (!line.trim()) continue;
 
-    for await (const line of rl) {
-      if (!line.trim()) continue;
-
-      let parsed: any;
-      try {
-        parsed = JSON.parse(line);
-      } catch {
-        continue;
-      }
-
-      const type = parsed.type;
-
-      if (type === "system" && parsed.subtype === "init" && parsed.session_id) {
-        resultSessionId = parsed.session_id;
-      } else if (type === "stream_event") {
-        const event = parsed.event;
-        if (!event) continue;
-
-        if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) {
-          onEvent({ type: "text_delta", text: event.delta.text });
-        } else if (event.type === "content_block_start" && event.content_block?.type === "thinking") {
-          onEvent({ type: "thinking_start" });
-        } else if (event.type === "content_block_stop") {
-          onEvent({ type: "thinking_end" });
-        } else if (event.type === "content_block_start" && event.content_block?.type === "tool_use") {
-          onEvent({ type: "tool_use", toolName: event.content_block.name });
+        let parsed: any;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          continue;
         }
-      } else if (type === "result") {
-        result = parsed.result ?? "";
-        resultSessionId = parsed.session_id ?? resultSessionId;
-        onEvent({ type: "result", text: result, sessionId: resultSessionId });
+
+        const type = parsed.type;
+
+        if (type === "system" && parsed.subtype === "init" && parsed.session_id) {
+          resultSessionId = parsed.session_id;
+        } else if (type === "stream_event") {
+          const event = parsed.event;
+          if (!event) continue;
+
+          if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) {
+            onEvent({ type: "text_delta", text: event.delta.text });
+          } else if (event.type === "content_block_start" && event.content_block?.type === "thinking") {
+            onEvent({ type: "thinking_start" });
+          } else if (event.type === "content_block_stop") {
+            onEvent({ type: "thinking_end" });
+          } else if (event.type === "content_block_start" && event.content_block?.type === "tool_use") {
+            onEvent({ type: "tool_use", toolName: event.content_block.name });
+          }
+        } else if (type === "result") {
+          result = parsed.result ?? "";
+          resultSessionId = parsed.session_id ?? resultSessionId;
+          onEvent({ type: "result", text: result, sessionId: resultSessionId });
+        }
       }
+    } finally {
+      rl.close();
     }
 
     await new Promise<void>((resolve, reject) => {
       child.on("close", (code) => {
+        clearTimeout(processTimeout);
+        activeChildren.delete(child);
         if (code !== 0 && !result) {
           reject(new Error(`claude exited with code ${code}`));
         } else {
@@ -382,5 +411,8 @@ You have access to CamelAGI's gateway API. Use curl to interact with it:
     return { response: result, sessionId: resultSessionId };
   } finally {
     session.busy = false;
+    // Clean up MCP temp files
+    const tmpPath = path.join(os.tmpdir(), `camelagi-mcp-${chatId}.json`);
+    try { fs.unlinkSync(tmpPath); } catch {}
   }
 }
