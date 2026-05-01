@@ -5,12 +5,8 @@
 <h1 align="center">CamelAGI</h1>
 
 <p align="center">
-  <strong>Self-hosted AI agents controlled from Telegram.</strong><br>
-  Run Claude Code, create agents, manage tools, and control everything from your phone.
-</p>
-
-<p align="center">
-  Alternative to OpenClaw, built on Claude Agent SDK + Cursor SDK.
+  <strong>Open-source AI agent platform built on Claude Agent SDK + Cursor SDK.</strong><br>
+  Alternative to OpenClaw — self-hosted, multi-runtime, multi-channel.
 </p>
 
 <p align="center">
@@ -23,7 +19,9 @@
 </p>
 
 <p align="center">
-  <img src="assets/Claude_Logo.png" alt="Claude Logo" width="120" />
+  <img src="assets/Claude_Logo.png" alt="Claude Logo" width="100" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="assets/Cursor_Logo.png" alt="Cursor Logo" width="100" />
 </p>
 
 <p align="center">
