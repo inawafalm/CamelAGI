@@ -21,7 +21,7 @@
 <p align="center">
   <img src="assets/Claude_Logo.png" alt="Claude Logo" width="100" />
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="assets/Cursor_Logo.png" alt="Cursor Logo" width="100" />
+  <img src="assets/Cursor_Logo.svg" alt="Cursor Logo" width="100" />
 </p>
 
 <p align="center">
