@@ -6,11 +6,14 @@ import { paths } from "./core/config.js";
 import { deleteUsage } from "./usage.js";
 import type { Message } from "./core/types.js";
 
+export type SdkTag = "claude" | "cursor";
+
 export interface SessionMeta {
   id: string;
   createdAt: number;
   model: string;
   label?: string;
+  sdk?: SdkTag;
 }
 
 interface SerializedMessage {
@@ -69,12 +72,12 @@ export function loadMessages(sessionId: string): Message[] {
   });
 }
 
-export function saveMessage(sessionId: string, message: Message, model: string, label?: string): void {
+export function saveMessage(sessionId: string, message: Message, model: string, label?: string, sdk?: SdkTag): void {
   fs.mkdirSync(paths.sessionsDir, { recursive: true });
   const file = sessionPath(sessionId);
 
   if (!fs.existsSync(file)) {
-    const meta: SessionMeta = { id: sessionId, createdAt: Date.now(), model, ...(label && { label }) };
+    const meta: SessionMeta = { id: sessionId, createdAt: Date.now(), model, ...(label && { label }), ...(sdk && { sdk }) };
     fs.writeFileSync(file, JSON.stringify(meta) + "\n");
   }
 
@@ -84,6 +87,13 @@ export function saveMessage(sessionId: string, message: Message, model: string, 
     content: message.content,
   };
   fs.appendFileSync(file, JSON.stringify(serialized) + "\n");
+}
+
+export function getSessionMeta(sessionId: string): SessionMeta | null {
+  const file = sessionPath(sessionId);
+  if (!fs.existsSync(file)) return null;
+  const firstLine = fs.readFileSync(file, "utf-8").split("\n")[0];
+  try { return JSON.parse(firstLine) as SessionMeta; } catch { return null; }
 }
 
 export function deleteSession(sessionId: string): void {

@@ -4,6 +4,7 @@ import type { TUI, SelectListTheme } from "@mariozechner/pi-tui";
 import type { WebSocket } from "ws";
 import type { Config } from "../core/config.js";
 import type { Message } from "../core/types.js";
+import type { SdkTag } from "../session.js";
 import type { ChatLog } from "./components/chat-log.js";
 import type { CustomEditor } from "./components/custom-editor.js";
 import type { HintBar } from "./components/hint-bar.js";
@@ -17,6 +18,7 @@ export interface TuiState {
   currentModel: string;
   currentThinking: string;
   currentEffort: string;
+  currentSdk: SdkTag;
   sdkSessionId?: string;
   systemPrompt: string;
   toolsExpanded: boolean;

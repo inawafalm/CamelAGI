@@ -40,6 +40,8 @@ export async function handleCommand(ctx: TuiCtx, input: string): Promise<void> {
           "  /agents rm <id>  — remove an agent",
           "  /soul [id]       — view agent's SOUL.md",
           "  /soul <id> edit  — open SOUL.md in $EDITOR",
+          "  /cursor          — switch to Cursor SDK runtime",
+          "  /claude          — switch to Claude SDK runtime",
           "  /setup           — run setup wizard (exits TUI)",
           "  /exit, /quit     — exit",
           "  !<command>       — run a shell command",
@@ -76,6 +78,7 @@ export async function handleCommand(ctx: TuiCtx, input: string): Promise<void> {
         [
           `provider: ${state.config.provider}`,
           `model:    ${state.currentModel}`,
+          `sdk:      ${state.currentSdk}`,
           state.config.baseUrl ? `baseUrl:  ${state.config.baseUrl}` : null,
           `apiKey:   ${state.config.apiKey ? "***" + state.config.apiKey.slice(-4) : "not set"}`,
           `session:  ${state.sid}`,
@@ -358,6 +361,20 @@ export async function handleCommand(ctx: TuiCtx, input: string): Promise<void> {
       tui.requestRender();
       break;
     }
+
+    case "cursor":
+      state.currentSdk = "cursor";
+      chatLog.addSystem("Switched to Cursor SDK. Next message will use Cursor's agent runtime.");
+      updateFooter();
+      tui.requestRender();
+      break;
+
+    case "claude":
+      state.currentSdk = "claude";
+      chatLog.addSystem("Switched to Claude SDK. Next message will use Claude's agent runtime.");
+      updateFooter();
+      tui.requestRender();
+      break;
 
     case "cancel":
       if (state.agentCreation) {

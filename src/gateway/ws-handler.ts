@@ -5,7 +5,8 @@ import { loadConfig } from "../core/config.js";
 import { createClient } from "../model.js";
 import { buildSystemPrompt } from "../system-prompt.js";
 import type { AgentEvent } from "../agent.js";
-import { loadMessages, listSessions, deleteSession } from "../session.js";
+import { loadMessages, listSessions, deleteSession, getSessionMeta } from "../session.js";
+import type { SdkTag } from "../session.js";
 import { getActiveRunCount } from "../runtime/runs.js";
 import { compactHistory } from "../runtime/compact.js";
 import { getLaneStats } from "../runtime/lanes.js";
@@ -35,6 +36,7 @@ async function handleChat(
 
   session.abortController = new AbortController();
   const resumeId = (msg.sdkSessionId as string | undefined) ?? session.sdkSessionId;
+  const requestedSdk = (msg.sdk as SdkTag | undefined) ?? undefined;
 
   try {
     const result = await orchestrate({
@@ -45,6 +47,7 @@ async function handleChat(
       client: state.client,
       signal: session.abortController.signal,
       resumeSessionId: resumeId,
+      sdk: requestedSdk,
       onEvent: (event: AgentEvent) => {
         if (event.type === "init") {
           session.sdkSessionId = event.sessionId;
@@ -83,6 +86,7 @@ async function handleChat(
         runId: result.runId,
         usage: result.usage,
         sdkSessionId: session.sdkSessionId,
+        sdk: result.sdk,
       });
     }
   } finally {
@@ -101,11 +105,14 @@ function handleSessionsDelete(ws: WebSocket, msg: Record<string, unknown>): void
 }
 
 function handleSessionsHistory(ws: WebSocket, msg: Record<string, unknown>): void {
-  const messages = loadMessages((msg.id ?? msg.session ?? "") as string);
+  const histSid = (msg.id ?? msg.session ?? "") as string;
+  const messages = loadMessages(histSid);
+  const meta = getSessionMeta(histSid);
   send(ws, {
     type: "history",
-    session: msg.id ?? msg.session,
+    session: histSid,
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    sdk: meta?.sdk ?? "claude",
   });
 }
 
@@ -133,6 +140,7 @@ function handleStatus(ws: WebSocket, state: GatewayState, msg: Record<string, un
   const usage = getSessionUsage(statusSid);
   const messages = loadMessages(statusSid);
   const historyChars = messages.reduce((sum, m) => sum + m.content.length, 0);
+  const meta = getSessionMeta(statusSid);
   send(ws, {
     type: "status",
     session: statusSid,
@@ -143,6 +151,7 @@ function handleStatus(ws: WebSocket, state: GatewayState, msg: Record<string, un
     usage: usage.calls > 0 ? usage : null,
     lanes: getLaneStats(),
     activeRuns: getActiveRunCount(),
+    sdk: meta?.sdk ?? "claude",
   });
 }
 

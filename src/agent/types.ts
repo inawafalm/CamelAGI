@@ -1,7 +1,8 @@
-// Agent types — shared between SDK and OpenAI paths
+// Agent types — shared between Claude SDK and Cursor SDK paths
 
 import type { Message, TokenUsage } from "../core/types.js";
 import type { ApprovalMode } from "../extensions/approvals.js";
+import type { SdkTag } from "../session.js";
 
 export interface RunResult {
   response: string;
@@ -40,6 +41,8 @@ export interface AgentOpts {
   agentId?: string;
   provider?: string;
   baseUrl?: string;
+  sdk?: SdkTag;
+  cursorApiKey?: string;
   approvals?: { mode: ApprovalMode; allowlist: string[]; timeoutSeconds: number; fallback: "deny" | "allow"; forwardTo?: number };
   mcpServers?: Record<string,
     | { type?: "stdio"; command: string; args?: string[]; env?: Record<string, string> }

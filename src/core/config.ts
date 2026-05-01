@@ -48,6 +48,8 @@ const schema = z.object({
   provider: z.enum(["anthropic", "openai"]).default("anthropic"),
   model: z.string().default("claude-sonnet-4-20250514"),
   apiKey: z.string().optional(),
+  cursorApiKey: z.string().optional(),
+  cursorModel: z.string().default("claude-sonnet-4-20250514"),
   baseUrl: z.string().optional(),
   systemPrompt: z.string().default(
     "You are CamelAGI, a helpful AI assistant. You have access to tools for running shell commands, reading/writing files, and fetching URLs. Use them when needed to help the user.",
@@ -197,6 +199,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     ...(process.env.CAMELAGI_MODEL && { model: process.env.CAMELAGI_MODEL }),
     ...(process.env.ANTHROPIC_API_KEY && { apiKey: process.env.ANTHROPIC_API_KEY }),
     ...(process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY && { apiKey: process.env.OPENAI_API_KEY }),
+    ...(process.env.CURSOR_API_KEY && { cursorApiKey: process.env.CURSOR_API_KEY }),
     ...(process.env.CAMELAGI_BASE_URL && { baseUrl: process.env.CAMELAGI_BASE_URL }),
     ...overrides,
   };

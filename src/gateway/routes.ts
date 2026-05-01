@@ -5,7 +5,8 @@ import { loadConfig, saveConfig } from "../core/config.js";
 import { createClient } from "../model.js";
 import { buildSystemPrompt } from "../system-prompt.js";
 import { agentMemoryDir, seedAgentWorkspace } from "../workspace.js";
-import { loadMessages, listSessions, deleteSession } from "../session.js";
+import { loadMessages, listSessions, deleteSession, getSessionMeta } from "../session.js";
+import type { SdkTag } from "../session.js";
 import { getActiveRunCount } from "../runtime/runs.js";
 import { getLaneStats } from "../runtime/lanes.js";
 import { orchestrate } from "../runtime/orchestrate.js";
@@ -52,7 +53,7 @@ export function registerRoutes(app: Express, state: GatewayState): void {
   const auth = requireAuth(state);
 
   app.post("/chat", auth, async (req, res) => {
-    const { message, session } = req.body;
+    const { message, session, sdk } = req.body;
     if (!message || typeof message !== "string") {
       res.status(400).json({ error: "message is required" });
       return;
@@ -68,12 +69,13 @@ export function registerRoutes(app: Express, state: GatewayState): void {
         config: state.config,
         systemPrompt: state.systemPrompt,
         client: state.client,
+        sdk: sdk as SdkTag | undefined,
       });
 
       if (result.response) {
         logMessage(state, "http", "out", sid, result.response);
       }
-      res.json({ response: result.response, session: sid });
+      res.json({ response: result.response, session: sid, sdk: result.sdk });
     } catch (err: unknown) {
       logMessage(state, "http", "out", sid, `ERROR: ${errorMessage(err)}`);
       res.status(500).json({ error: errorMessage(err) });
@@ -163,7 +165,11 @@ export function registerRoutes(app: Express, state: GatewayState): void {
 
   // Config
   app.get("/config", auth, (_req, res) => {
-    const safe = { ...state.config, apiKey: state.config.apiKey ? `***${state.config.apiKey.slice(-4)}` : undefined };
+    const safe = {
+      ...state.config,
+      apiKey: state.config.apiKey ? `***${state.config.apiKey.slice(-4)}` : undefined,
+      cursorApiKey: state.config.cursorApiKey ? `***${state.config.cursorApiKey.slice(-4)}` : undefined,
+    };
     res.json(safe);
   });
 
@@ -171,6 +177,7 @@ export function registerRoutes(app: Express, state: GatewayState): void {
     const updates = req.body;
     if (!updates || typeof updates !== "object") { res.status(400).json({ error: "JSON body required" }); return; }
     delete updates.apiKey;
+    delete updates.cursorApiKey;
     delete updates.serve;
     saveConfig(updates);
     state.config = loadConfig();

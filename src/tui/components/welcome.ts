@@ -72,6 +72,7 @@ export interface WelcomeOpts {
   cwd: string;
   sessions: SessionMeta[];
   thinking?: string;
+  sdk?: string;
 }
 
 export function buildWelcomeScreen(opts: WelcomeOpts, termWidth: number): Text {
@@ -92,7 +93,8 @@ export function buildWelcomeScreen(opts: WelcomeOpts, termWidth: number): Text {
   const modelLine = c.dim(
     `${opts.model}${thinkingStr}`,
   );
-  const effortLine = c.dim(`${opts.effort} effort · ${opts.provider}`);
+  const sdkLabel = opts.sdk === "cursor" ? "cursor-sdk" : "claude-sdk";
+  const effortLine = c.dim(`${opts.effort} effort · ${opts.provider} · ${sdkLabel}`);
 
   // Shorten cwd
   const home = process.env.HOME ?? "";

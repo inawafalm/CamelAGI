@@ -8,8 +8,9 @@ import type { Config } from "../core/config.js";
 import type { Message } from "../core/types.js";
 import type { AgentEvent, RunResult } from "../agent/types.js";
 import type { ErrorKind } from "./retry.js";
+import type { SdkTag } from "../session.js";
 import { runAgent } from "../agent.js";
-import { loadMessages, saveMessage } from "../session.js";
+import { loadMessages, saveMessage, getSessionMeta } from "../session.js";
 import { setActiveRun, clearActiveRun, isRunActive, generateRunId } from "./runs.js";
 import { queueOrProcess, drainQueue } from "./queue.js";
 import { compactHistory } from "./compact.js";
@@ -43,6 +44,8 @@ export interface OrchestrateOpts {
   effort?: Config["effort"];
   /** Max turns override */
   maxTurns?: number;
+  /** Which SDK to use for this session (claude or cursor) */
+  sdk?: SdkTag;
 }
 
 export interface OrchestrateResult {
@@ -52,6 +55,7 @@ export interface OrchestrateResult {
   usage: RunResult["usage"];
   sdkSessionId?: string;
   queued?: boolean;
+  sdk: SdkTag;
 }
 
 /**
@@ -70,7 +74,16 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
     agentId, resumeSessionId, label,
   } = opts;
 
-  const model = opts.model ?? config.model;
+  // Resolve SDK: explicit opt > session history > default
+  const existingMeta = getSessionMeta(sessionId);
+  const sdk: SdkTag = opts.sdk ?? existingMeta?.sdk ?? "claude";
+
+  // Use the right model for the chosen SDK
+  // Direct Cursor API → use cursorModel (Cursor IDs like "composer-2")
+  // Gateway mode → use main model (OpenRouter IDs like "deepseek/deepseek-v4-pro")
+  const model = sdk === "cursor" && config.cursorApiKey
+    ? (opts.model ?? config.cursorModel)
+    : (opts.model ?? config.model);
   const agentSystemPrompt = opts.agentSystemPrompt ?? systemPrompt;
   const thinking = opts.thinking ?? config.thinking;
   const effort = opts.effort ?? config.effort;
@@ -81,7 +94,7 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
     const queueResult = await queueOrProcess(sessionId, message);
     if (queueResult.queued) {
       const response = await queueResult.promise;
-      return { response, runId: "", sessionId, usage: null, queued: true };
+      return { response, runId: "", sessionId, usage: null, queued: true, sdk };
     }
   }
 
@@ -136,12 +149,19 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
       ...(config.maxBudgetUsd ? { maxBudgetUsd: config.maxBudgetUsd } : {}),
       ...(resumeSessionId ? { resumeSessionId } : {}),
       ...(agentId ? { agentId } : {}),
+      sdk,
+      ...(config.cursorApiKey ? { cursorApiKey: config.cursorApiKey } : {}),
     };
 
-    if (!config.apiKey) {
+    // Both SDKs can use the same API key — cursor-sdk-gateway routes
+    // model calls through OpenRouter / any OpenAI-compatible provider.
+    // Fall back to cursorApiKey for users with a direct Cursor key.
+    const apiKey = sdk === "cursor"
+      ? (config.apiKey ?? config.cursorApiKey ?? "")
+      : (config.apiKey ?? "");
+    if (!apiKey) {
       throw new Error("No API key configured. Run: camel setup");
     }
-    const apiKey = config.apiKey;
 
     const result = await withRetry(
       () => runAgent(apiKey, model, agentSystemPrompt, history, message, agentOpts),
@@ -159,10 +179,10 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
     );
     streaming = false;
 
-    // Persist messages
-    saveMessage(sessionId, { role: "user", content: message }, model, label);
+    // Persist messages (sdk tag is written into the session meta on creation)
+    saveMessage(sessionId, { role: "user", content: message }, model, label, sdk);
     if (result.response) {
-      saveMessage(sessionId, { role: "assistant", content: result.response }, model, label);
+      saveMessage(sessionId, { role: "assistant", content: result.response }, model, label, sdk);
     }
 
     return {
@@ -171,6 +191,7 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
       sessionId,
       usage: result.usage,
       sdkSessionId: result.sessionId,
+      sdk,
     };
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));

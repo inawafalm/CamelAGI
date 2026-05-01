@@ -15,7 +15,8 @@ import { WebSocket } from "ws";
 import { loadConfig, saveConfig, ensureDirs, type Config } from "../core/config.js";
 import { seedWorkspace } from "../workspace.js";
 import { buildSystemPrompt } from "../system-prompt.js";
-import { loadMessages, listSessions } from "../session.js";
+import { loadMessages, listSessions, getSessionMeta } from "../session.js";
+import type { SdkTag } from "../session.js";
 import { getSessionUsage, formatTokens } from "../usage.js";
 import type { Message } from "../core/types.js";
 import { execFile } from "node:child_process";
@@ -52,6 +53,8 @@ function getSlashCommands(): SlashCommand[] {
     { name: "new", description: "Start a new session" },
     { name: "agents", description: "List, create, or remove agents" },
     { name: "soul", description: "View/edit an agent's SOUL.md" },
+    { name: "cursor", description: "Switch to Cursor SDK runtime" },
+    { name: "claude", description: "Switch to Claude SDK runtime" },
     { name: "cancel", description: "Cancel agent creation" },
     { name: "setup", description: "Run setup wizard" },
     { name: "exit", description: "Exit CamelAGI" },
@@ -72,6 +75,7 @@ export async function runTui(opts: TuiOptions = {}) {
     currentModel: config.model,
     currentThinking: config.thinking,
     currentEffort: config.effort,
+    currentSdk: "claude" as SdkTag,
     systemPrompt,
     toolsExpanded: false,
     toolCounter: 0,
@@ -203,6 +207,7 @@ export async function runTui(opts: TuiOptions = {}) {
       `? for shortcuts`,
       state.currentModel,
       state.config.provider,
+      state.currentSdk === "cursor" ? "cursor-sdk" : "claude-sdk",
     ];
     if (usage.calls > 0) {
       parts.push(`${formatTokens(usage.totalInput + usage.totalOutput)} tokens`);
@@ -380,6 +385,7 @@ export async function runTui(opts: TuiOptions = {}) {
       type: "chat",
       message: value,
       session: state.sid,
+      sdk: state.currentSdk,
       ...(state.sdkSessionId && { sdkSessionId: state.sdkSessionId }),
     });
   };
@@ -420,6 +426,12 @@ export async function runTui(opts: TuiOptions = {}) {
   updateHint();
   setActivity("idle");
 
+  // Detect SDK from existing session
+  if (opts.session) {
+    const meta = getSessionMeta(opts.session);
+    if (meta?.sdk) state.currentSdk = meta.sdk;
+  }
+
   if (state.messages.length > 0) {
     for (const m of state.messages) {
       if (m.role === "user") chatLog.addUser(m.content);
@@ -436,6 +448,7 @@ export async function runTui(opts: TuiOptions = {}) {
       cwd: process.cwd(),
       sessions,
       thinking: state.currentThinking,
+      sdk: state.currentSdk,
     }, process.stdout.columns ?? 120);
     chatLog.addChild(welcome);
   }

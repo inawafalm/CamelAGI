@@ -10,13 +10,14 @@
 </p>
 
 <p align="center">
-  Alternative to OpenClaw, built on Claude Agent SDK.
+  Alternative to OpenClaw, built on Claude Agent SDK + Cursor SDK.
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
   <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-5.7-blue?logo=typescript" alt="TypeScript"></a>
   <a href="https://platform.claude.com/docs/en/agent-sdk/overview"><img src="https://img.shields.io/badge/Built%20with-Claude%20Agent%20SDK-orange?logo=anthropic" alt="Claude Agent SDK"></a>
+  <a href="https://cursor.com/docs/sdk/typescript"><img src="https://img.shields.io/badge/Built%20with-Cursor%20SDK-purple" alt="Cursor SDK"></a>
   <a href="https://core.telegram.org/bots"><img src="https://img.shields.io/badge/Telegram-Admin%20Bot-26A5E4?logo=telegram" alt="Telegram"></a>
   <a href="https://camelagi.net"><img src="https://img.shields.io/badge/Website-camelagi.net-brown" alt="Website"></a>
 </p>
@@ -26,7 +27,7 @@
 </p>
 
 <p align="center">
-  Powered by Claude Agent SDK — the same runtime behind Claude Code.
+  Dual runtime: <strong>Claude Agent SDK</strong> + <strong>Cursor SDK</strong> — switch between them per session.
 </p>
 
 <p align="center">
@@ -49,11 +50,11 @@ Use `/newagent` in Telegram to create your first AI agent.
 
 ## Why CamelAGI
 
+- **Dual SDK runtime** — Claude Agent SDK + Cursor SDK, switchable per session
 - Run Claude Code remotely from Telegram  
 - Create and manage multiple AI agents  
 - Self-hosted with full control  
-- Built on Claude Agent SDK  
-- Multi-provider support  
+- Multi-provider support (Anthropic, OpenRouter, or any OpenAI-compatible endpoint)
 - Alternative to OpenClaw  
 
 ---
@@ -117,10 +118,58 @@ Runs Claude Code directly on your machine, remote-controlled from Telegram. Same
 
 ---
 
+## Cursor SDK Runtime
+
+CamelAGI supports the [Cursor SDK](https://cursor.com/docs/sdk/typescript) as an alternative agent runtime alongside Claude Agent SDK. Switch between them at any time — each session remembers which runtime it uses.
+
+### Two modes
+
+| Mode | What it does | Config needed |
+|------|-------------|---------------|
+| **Gateway (OpenRouter)** | Routes model calls through your existing OpenRouter/OpenAI-compatible key. Cursor's local tools (file read/write/edit, shell, MCP, subagents) still work. | Your existing `apiKey` + `baseUrl` — no Cursor account needed |
+| **Direct Cursor API** | Uses Cursor's native backend and models (e.g. `composer-2`). Billed through your Cursor subscription. | `cursorApiKey` in config or `CURSOR_API_KEY` env var |
+
+### Switching runtimes
+
+**TUI:**
+```
+/cursor    — switch to Cursor SDK
+/claude    — switch back to Claude SDK
+```
+
+**REST API:**
+```bash
+curl -X POST http://localhost:18305/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "hello", "sdk": "cursor"}'
+```
+
+**WebSocket:**
+```json
+{"type": "chat", "message": "hello", "sdk": "cursor"}
+```
+
+Sessions are sticky — the first message sets the runtime, and all subsequent messages on that session use the same one automatically.
+
+### Config
+
+```yaml
+# Gateway mode (uses your existing key):
+apiKey: "sk-or-..."
+baseUrl: "https://openrouter.ai/api/v1"
+
+# Direct Cursor API (optional):
+cursorApiKey: "crsr_..."
+cursorModel: "composer-2"
+```
+
+---
+
 ## Features
 
 | Feature | Description |
 |---|---|
+| Dual SDK Runtime | Claude Agent SDK + Cursor SDK, switchable per session |
 | Claude Code via Telegram | Run Claude Code from your phone |
 | Telegram Admin Bot | Create and manage agents |
 | Telegram Agent Bots | One bot per agent |
@@ -262,12 +311,13 @@ agents:
 ## Architecture
 
 ```text
-Inbound message
-→ Queue
-→ Context load
-→ Agent execution
+Inbound message (TUI / REST / WS / Telegram)
+→ SDK resolution (Claude or Cursor, sticky per session)
+→ Queue check
+→ Context load + compaction
+→ Agent execution (Claude Agent SDK or Cursor SDK via gateway)
 → Tool use
-→ Save session
+→ Save session (with SDK tag)
 ```
 
 ---
