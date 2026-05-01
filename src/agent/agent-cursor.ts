@@ -28,6 +28,7 @@ async function ensureGateway(apiKey: string, baseUrl?: string): Promise<void> {
     apiKey,
   });
 
+  process.stderr.write(`\x1b[36m[cursor-gateway]\x1b[0m started at ${gatewayHandle.url} → ${resolvedBase}\n`);
   gatewayConfigured = true;
 }
 
@@ -118,15 +119,9 @@ export async function runAgentCursor(
   userMessage: string,
   opts?: AgentOpts,
 ): Promise<RunResult> {
-  const directCursorKey = opts?.cursorApiKey;
-  const useDirectCursor = !!directCursorKey;
+  // Always use gateway — routes through OpenRouter / OpenAI-compatible provider
+  await ensureGateway(apiKey, opts?.baseUrl);
 
-  // Gateway mode: configure BEFORE any @cursor/sdk import
-  if (!useDirectCursor) {
-    await ensureGateway(apiKey, opts?.baseUrl);
-  }
-
-  // Dynamic import — must happen AFTER gateway is configured
   const cursorSdk = await import("@cursor/sdk");
   const Agent = cursorSdk.Agent;
 
@@ -148,7 +143,6 @@ export async function runAgentCursor(
   let agent = agentCache.get(cacheKey);
   if (!agent) {
     agent = await Agent.create({
-      ...(useDirectCursor ? { apiKey: directCursorKey } : {}),
       model: { id: model },
       local: { cwd: process.cwd() },
       ...(mcpServers ? { mcpServers } : {}),

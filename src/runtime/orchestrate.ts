@@ -78,12 +78,7 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
   const existingMeta = getSessionMeta(sessionId);
   const sdk: SdkTag = opts.sdk ?? existingMeta?.sdk ?? "claude";
 
-  // Use the right model for the chosen SDK
-  // Direct Cursor API → use cursorModel (Cursor IDs like "composer-2")
-  // Gateway mode → use main model (OpenRouter IDs like "deepseek/deepseek-v4-pro")
-  const model = sdk === "cursor" && config.cursorApiKey
-    ? (opts.model ?? config.cursorModel)
-    : (opts.model ?? config.model);
+  const model = opts.model ?? config.model;
   const agentSystemPrompt = opts.agentSystemPrompt ?? systemPrompt;
   const thinking = opts.thinking ?? config.thinking;
   const effort = opts.effort ?? config.effort;
@@ -150,15 +145,9 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
       ...(resumeSessionId ? { resumeSessionId } : {}),
       ...(agentId ? { agentId } : {}),
       sdk,
-      ...(config.cursorApiKey ? { cursorApiKey: config.cursorApiKey } : {}),
     };
 
-    // Both SDKs can use the same API key — cursor-sdk-gateway routes
-    // model calls through OpenRouter / any OpenAI-compatible provider.
-    // Fall back to cursorApiKey for users with a direct Cursor key.
-    const apiKey = sdk === "cursor"
-      ? (config.apiKey ?? config.cursorApiKey ?? "")
-      : (config.apiKey ?? "");
+    const apiKey = config.apiKey ?? "";
     if (!apiKey) {
       throw new Error("No API key configured. Run: camel setup");
     }
