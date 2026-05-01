@@ -3,37 +3,35 @@
 // 2. Gateway mode (no cursorApiKey) → routes through OpenRouter / any OpenAI-compatible provider
 // Both keep Cursor's local tools (file read/write/edit, shell, MCP, subagents)
 
-import type { SDKMessage, SDKAgent } from "@cursor/sdk";
 import type { Message } from "../core/types.js";
 import type { RunResult, AgentOpts, AgentEvent } from "./types.js";
 import { recordUsage } from "../usage.js";
 
 let gatewayConfigured = false;
-const agentCache = new Map<string, SDKAgent>();
+let gatewayHandle: { url: string; close(): Promise<void> } | null = null;
+
+// Agent cache uses `any` to avoid importing @cursor/sdk types at the top level
+const agentCache = new Map<string, any>();
 
 async function ensureGateway(apiKey: string, baseUrl?: string): Promise<void> {
   if (gatewayConfigured) return;
 
   const { configureCursorGateway } = await import("cursor-sdk-gateway");
 
-  if (baseUrl) {
-    await configureCursorGateway({
-      provider: "openai-compatible",
-      baseURL: baseUrl.replace(/\/v1\/?$/, "/v1"),
-      apiKey,
-    });
-  } else {
-    await configureCursorGateway({
-      provider: "openai-compatible",
-      baseURL: "https://openrouter.ai/api/v1",
-      apiKey,
-    });
-  }
+  const resolvedBase = baseUrl
+    ? baseUrl.replace(/\/v1\/?$/, "/v1")
+    : "https://openrouter.ai/api/v1";
+
+  gatewayHandle = await configureCursorGateway({
+    provider: "openai-compatible",
+    baseURL: resolvedBase,
+    apiKey,
+  });
 
   gatewayConfigured = true;
 }
 
-function mapCursorEvent(msg: SDKMessage, emit: (event: AgentEvent) => void): string {
+function mapCursorEvent(msg: any, emit: (event: AgentEvent) => void): string {
   let text = "";
 
   switch (msg.type) {
@@ -123,12 +121,14 @@ export async function runAgentCursor(
   const directCursorKey = opts?.cursorApiKey;
   const useDirectCursor = !!directCursorKey;
 
-  // Gateway mode: configure BEFORE importing @cursor/sdk
+  // Gateway mode: configure BEFORE any @cursor/sdk import
   if (!useDirectCursor) {
     await ensureGateway(apiKey, opts?.baseUrl);
   }
 
-  const { Agent } = await import("@cursor/sdk");
+  // Dynamic import — must happen AFTER gateway is configured
+  const cursorSdk = await import("@cursor/sdk");
+  const Agent = cursorSdk.Agent;
 
   const emit = opts?.onEvent;
   const cacheKey = opts?.agentId ?? opts?.sessionId ?? "default";
@@ -148,8 +148,6 @@ export async function runAgentCursor(
   let agent = agentCache.get(cacheKey);
   if (!agent) {
     agent = await Agent.create({
-      // Direct mode: pass Cursor API key + Cursor model IDs (e.g. "composer-2")
-      // Gateway mode: no apiKey needed (gateway handles it), OpenRouter model IDs
       ...(useDirectCursor ? { apiKey: directCursorKey } : {}),
       model: { id: model },
       local: { cwd: process.cwd() },
