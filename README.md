@@ -120,12 +120,17 @@ Runs Claude Code directly on your machine, remote-controlled from Telegram. Same
 
 CamelAGI supports the [Cursor SDK](https://cursor.com/docs/sdk/typescript) as an alternative agent runtime alongside Claude Agent SDK. Switch between them at any time — each session remembers which runtime it uses.
 
-### Two modes
+### Setup
 
-| Mode | What it does | Config needed |
-|------|-------------|---------------|
-| **Gateway (OpenRouter)** | Routes model calls through your existing OpenRouter/OpenAI-compatible key. Cursor's local tools (file read/write/edit, shell, MCP, subagents) still work. | Your existing `apiKey` + `baseUrl` — no Cursor account needed |
-| **Direct Cursor API** | Uses Cursor's native backend and models (e.g. `composer-2`). Billed through your Cursor subscription. | `cursorApiKey` in config or `CURSOR_API_KEY` env var |
+Get your Cursor API key from [Cursor Dashboard → Integrations](https://cursor.com/settings).
+
+```yaml
+# ~/.camelagi/config.yaml
+cursorApiKey: "crsr_..."
+cursorModel: "composer-2"    # optional, defaults to composer-2
+```
+
+Or set the env var: `export CURSOR_API_KEY=crsr_...`
 
 ### Switching runtimes
 
@@ -148,18 +153,6 @@ curl -X POST http://localhost:18305/chat \
 ```
 
 Sessions are sticky — the first message sets the runtime, and all subsequent messages on that session use the same one automatically.
-
-### Config
-
-```yaml
-# Gateway mode (uses your existing key):
-apiKey: "sk-or-..."
-baseUrl: "https://openrouter.ai/api/v1"
-
-# Direct Cursor API (optional):
-cursorApiKey: "crsr_..."
-cursorModel: "composer-2"
-```
 
 ---
 

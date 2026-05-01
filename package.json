@@ -26,7 +26,6 @@
     "@mariozechner/pi-tui": "^0.57.1",
     "chalk": "^5.6.2",
     "cli-highlight": "^2.1.11",
-    "cursor-sdk-gateway": "^0.1.0",
     "discord.js": "^14.25.1",
     "dotenv": "^16.x",
     "express": "^4.x",

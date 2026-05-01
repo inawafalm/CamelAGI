@@ -78,7 +78,9 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
   const existingMeta = getSessionMeta(sessionId);
   const sdk: SdkTag = opts.sdk ?? existingMeta?.sdk ?? "claude";
 
-  const model = opts.model ?? config.model;
+  const model = sdk === "cursor"
+    ? (opts.model ?? config.cursorModel)
+    : (opts.model ?? config.model);
   const agentSystemPrompt = opts.agentSystemPrompt ?? systemPrompt;
   const thinking = opts.thinking ?? config.thinking;
   const effort = opts.effort ?? config.effort;
@@ -145,6 +147,7 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
       ...(resumeSessionId ? { resumeSessionId } : {}),
       ...(agentId ? { agentId } : {}),
       sdk,
+      ...(config.cursorApiKey ? { cursorApiKey: config.cursorApiKey } : {}),
     };
 
     const apiKey = config.apiKey ?? "";

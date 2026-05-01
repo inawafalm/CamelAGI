@@ -1,36 +1,12 @@
-// Path 2: Cursor SDK — two modes:
-// 1. Direct Cursor API (has cursorApiKey) → uses Cursor's native backend
-// 2. Gateway mode (no cursorApiKey) → routes through OpenRouter / any OpenAI-compatible provider
-// Both keep Cursor's local tools (file read/write/edit, shell, MCP, subagents)
+// Cursor SDK runtime — uses @cursor/sdk directly with a Cursor API key.
+// Requires CURSOR_API_KEY or cursorApiKey in config.
+// Uses Cursor's native models (e.g. "composer-2") and local tools.
 
 import type { Message } from "../core/types.js";
 import type { RunResult, AgentOpts, AgentEvent } from "./types.js";
 import { recordUsage } from "../usage.js";
 
-let gatewayConfigured = false;
-let gatewayHandle: { url: string; close(): Promise<void> } | null = null;
-
-// Agent cache uses `any` to avoid importing @cursor/sdk types at the top level
 const agentCache = new Map<string, any>();
-
-async function ensureGateway(apiKey: string, baseUrl?: string): Promise<void> {
-  if (gatewayConfigured) return;
-
-  const { configureCursorGateway } = await import("cursor-sdk-gateway");
-
-  const resolvedBase = baseUrl
-    ? baseUrl.replace(/\/v1\/?$/, "/v1")
-    : "https://openrouter.ai/api/v1";
-
-  gatewayHandle = await configureCursorGateway({
-    provider: "openai-compatible",
-    baseURL: resolvedBase,
-    apiKey,
-  });
-
-  process.stderr.write(`\x1b[36m[cursor-gateway]\x1b[0m started at ${gatewayHandle.url} → ${resolvedBase}\n`);
-  gatewayConfigured = true;
-}
 
 function mapCursorEvent(msg: any, emit: (event: AgentEvent) => void): string {
   let text = "";
@@ -119,11 +95,12 @@ export async function runAgentCursor(
   userMessage: string,
   opts?: AgentOpts,
 ): Promise<RunResult> {
-  // Always use gateway — routes through OpenRouter / OpenAI-compatible provider
-  await ensureGateway(apiKey, opts?.baseUrl);
+  const cursorKey = opts?.cursorApiKey || process.env.CURSOR_API_KEY;
+  if (!cursorKey) {
+    throw new Error("Cursor SDK requires a Cursor API key. Set CURSOR_API_KEY env var or cursorApiKey in config.");
+  }
 
-  const cursorSdk = await import("@cursor/sdk");
-  const Agent = cursorSdk.Agent;
+  const { Agent } = await import("@cursor/sdk");
 
   const emit = opts?.onEvent;
   const cacheKey = opts?.agentId ?? opts?.sessionId ?? "default";
@@ -143,6 +120,7 @@ export async function runAgentCursor(
   let agent = agentCache.get(cacheKey);
   if (!agent) {
     agent = await Agent.create({
+      apiKey: cursorKey,
       model: { id: model },
       local: { cwd: process.cwd() },
       ...(mcpServers ? { mcpServers } : {}),

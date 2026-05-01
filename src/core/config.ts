@@ -49,7 +49,7 @@ const schema = z.object({
   model: z.string().default("claude-sonnet-4-20250514"),
   apiKey: z.string().optional(),
   cursorApiKey: z.string().optional(),
-  cursorModel: z.string().default("claude-sonnet-4-20250514"),
+  cursorModel: z.string().default("composer-2"),
   baseUrl: z.string().optional(),
   systemPrompt: z.string().default(
     "You are CamelAGI, a helpful AI assistant. You have access to tools for running shell commands, reading/writing files, and fetching URLs. Use them when needed to help the user.",
