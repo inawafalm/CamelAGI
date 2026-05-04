@@ -49,4 +49,7 @@ export interface AgentOpts {
     | { type: "http"; url: string; headers?: Record<string, string> }
     | { type: "sse"; url: string; headers?: Record<string, string> }
   >;
+  adminDeps?: {
+    getSystemPrompt: () => string;
+  };
 }

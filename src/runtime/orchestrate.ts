@@ -148,6 +148,9 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
       ...(agentId ? { agentId } : {}),
       sdk,
       ...(config.cursorApiKey ? { cursorApiKey: config.cursorApiKey } : {}),
+      ...(agentId && config.agents[agentId]?.adminTools ? {
+        adminDeps: { getSystemPrompt: () => agentSystemPrompt },
+      } : {}),
     };
 
     const apiKey = config.apiKey ?? "";

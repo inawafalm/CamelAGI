@@ -10,6 +10,7 @@ import { memorySearchTool, memoryGetTool, createScopedMemoryTools } from "../too
 import { agentMemoryDir } from "../workspace.js";
 import { patchTool } from "../tools/patch.js";
 import { cronTool } from "../tools/cron.js";
+import { createAdminTools, type AdminToolDeps } from "../tools/admin.js";
 import { runHooks } from "../extensions/hooks.js";
 import { recordUsage } from "../usage.js";
 import { DEFAULT_MAX_TURNS } from "../core/constants.js";
@@ -29,8 +30,11 @@ function getToolDefs(agentId?: string): ToolDef[] {
 }
 
 /** Create MCP server with CamelAGI-specific tools */
-function createCamelAgiMcpServer(agentId?: string) {
+function createCamelAgiMcpServer(agentId?: string, adminDeps?: AdminToolDeps) {
   const defs = getToolDefs(agentId);
+  if (adminDeps) {
+    defs.push(...createAdminTools(adminDeps));
+  }
   return createSdkMcpServer({
     name: "camelagi",
     tools: defs.map(adaptToolDef),
@@ -291,7 +295,7 @@ export async function runAgentSdk(
 
   const preToolHook = createPreToolHook(opts, emit, toolIdCounter);
   const postToolHook = createPostToolHook(opts, emit, toolIdCounter);
-  const mcpServer = createCamelAgiMcpServer(opts?.agentId);
+  const mcpServer = createCamelAgiMcpServer(opts?.agentId, opts?.adminDeps);
   const queryOptions = buildQueryOptions(model, systemPrompt, apiKey, opts, preToolHook, postToolHook, mcpServer);
 
   const q = query({ prompt: effectivePrompt, options: queryOptions as any });

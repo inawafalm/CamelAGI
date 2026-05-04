@@ -156,11 +156,49 @@ Sessions are sticky — the first message sets the runtime, and all subsequent m
 
 ---
 
+## AI Admin Agent
+
+An AI-powered admin agent that replaces wizard-based management with natural language. Instead of clicking through menus, just tell it what to do:
+
+> "Create 3 agents: first one called Finance for personal finance with telegram token 123:ABC, second one called Dev for development with the github MCP server, third one called Writer with the writing personality template"
+
+### Setup
+
+```yaml
+# ~/.camelagi/config.yaml
+agents:
+  aiadmin:
+    name: AI Admin
+    adminTools: true
+    model: claude-sonnet-4-20250514
+    telegram:
+      botToken: "YOUR_BOT_TOKEN"
+      allowedUsers: [YOUR_USER_ID]
+```
+
+Set `adminTools: true` on any agent to give it full admin capabilities via 8 AI tools:
+
+| Tool | Actions | What it does |
+|------|---------|-------------|
+| `admin_agents` | list, create, update, delete | Full agent lifecycle with soul templates |
+| `admin_config` | get, set, setup_provider | View/modify config, one-shot provider setup |
+| `admin_mcp` | list, add, remove | Manage MCP servers (stdio/http/sse) |
+| `admin_soul` | read, write | Read/write agent SOUL.md personality |
+| `admin_bot` | status, start, stop, restart | Telegram bot lifecycle |
+| `admin_sessions` | list, clear | View and bulk-delete sessions |
+| `admin_usage` | — | Per-agent token usage and costs |
+| `admin_pairing` | list, approve, deny | Manage user access requests |
+
+The AI admin works alongside the existing wizard admin bot — use both, or just one.
+
+---
+
 ## Features
 
 | Feature | Description |
 |---|---|
 | Dual SDK Runtime | Claude Agent SDK + Cursor SDK, switchable per session |
+| AI Admin Agent | Natural language agent management with admin tools |
 | Claude Code via Telegram | Run Claude Code from your phone |
 | Telegram Admin Bot | Create and manage agents |
 | Telegram Agent Bots | One bot per agent |

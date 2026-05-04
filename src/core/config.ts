@@ -130,6 +130,7 @@ const schema = z.object({
   agents: z.record(z.string(), z.object({
     name: z.string(),
     admin: z.boolean().default(false),
+    adminTools: z.boolean().default(false),
     mode: z.enum(["llm", "claude-code"]).default("llm").optional(),
     workDir: z.string().optional(),
     ccApprovals: z.enum(["skip", "acceptEdits"]).default("skip").optional(),
