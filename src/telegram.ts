@@ -46,8 +46,8 @@ export async function startTelegram(
     usedTokens.add(agent.telegram.botToken);
     seedAgentWorkspace(id, agent.name);
 
-    if (agent.admin && !agent.adminTools) {
-      // Wizard-only admin: BotFather-style commands + wizards (no AI)
+    if (agent.admin) {
+      // Admin bot: wizard commands + AI chat (when adminTools: true)
       const { setupAdminBot } = await import("./telegram/admin-bot.js");
       const bot = await setupAdminBot(id, agent.telegram.botToken, getConfig, getSystemPrompt, activeBots);
       const me = await bot.api.getMe();
@@ -61,7 +61,6 @@ export async function startTelegram(
       });
       startPolling(bot, id);
     } else {
-      // AI agent (with admin tools if adminTools: true)
       await setupAgentBot(id, agent.telegram.botToken, getConfig, getSystemPrompt, activeBots);
     }
     started.push(id);
@@ -100,7 +99,7 @@ export async function startBot(
     const config = getConfig();
     const agent = config.agents[agentId];
 
-    if (agent?.admin && !agent?.adminTools) {
+    if (agent?.admin) {
       const { setupAdminBot } = await import("./telegram/admin-bot.js");
       const bot = await setupAdminBot(agentId, botToken, getConfig, getSystemPrompt, activeBots);
       const me = await bot.api.getMe();
