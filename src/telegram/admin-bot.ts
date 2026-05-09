@@ -112,6 +112,10 @@ export async function setupAdminBot(
   const agentCfg = getConfig().agents[agentId];
   const adminToolsEnabled = agentCfg?.adminTools ?? agentCfg?.admin ?? false;
 
+  b.catch((err) => {
+    console.error(`[admin-bot] Error:`, err.message ?? err);
+  });
+
   b.on("message:text", async (ctx) => {
     const chatId = ctx.chat.id;
     const text = ctx.message.text;
@@ -127,6 +131,7 @@ export async function setupAdminBot(
     }
 
     // AI fallback: route to orchestrate when adminTools is enabled
+    console.log(`[admin-bot] AI chat: adminToolsEnabled=${adminToolsEnabled} text="${text.slice(0, 80)}"`);
     if (!adminToolsEnabled) return;
 
     const sessionId = `${agentId}-${chatId}`;
