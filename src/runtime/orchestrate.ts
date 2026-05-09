@@ -148,7 +148,7 @@ export async function orchestrate(opts: OrchestrateOpts): Promise<OrchestrateRes
       ...(agentId ? { agentId } : {}),
       sdk,
       ...(config.cursorApiKey ? { cursorApiKey: config.cursorApiKey } : {}),
-      ...(agentId && config.agents[agentId]?.adminTools ? {
+      ...(agentId && (config.agents[agentId]?.adminTools ?? config.agents[agentId]?.admin) ? {
         adminDeps: { getSystemPrompt: () => agentSystemPrompt },
       } : {}),
     };

@@ -109,7 +109,8 @@ export async function setupAdminBot(
 
   // ─── Message handler: wizard text intercept + AI fallback ───────────
 
-  const adminToolsEnabled = getConfig().agents[agentId]?.adminTools ?? false;
+  const agentCfg = getConfig().agents[agentId];
+  const adminToolsEnabled = agentCfg?.adminTools ?? agentCfg?.admin ?? false;
 
   b.on("message:text", async (ctx) => {
     const chatId = ctx.chat.id;
