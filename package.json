@@ -1,6 +1,6 @@
 {
   "name": "camelagi",
-  "version": "0.5.50",
+  "version": "0.5.51",
   "description": "Personal AI agent powered by Claude Agent SDK — manage everything from Telegram",
   "type": "module",
   "bin": {
@@ -15,7 +15,7 @@
     "lint": "tsc --noEmit",
     "bundle:gateway": "node esbuild.gateway.mjs",
     "build:all": "npm run build && npm run bundle:gateway",
-    "postinstall": "echo '\n  \\033[36mCamelAGI\\033[0m installed!\\n\\n  Get started:\\n    camel setup    # First-time setup\\n    camel serve    # Start server\\n    camel chat     # Terminal UI\\n'",
+    "postinstall": "echo '\n  \\033[36mCamelAGI\\033[0m installed!\\n\\n  Get started:\\n    camel setup    # First-time setup\\n    camel serve    # Start server\\n    camel chat     # Terminal UI\\n' && (command -v bun >/dev/null 2>&1 && cd tui && bun install --silent 2>/dev/null || true)",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
@@ -58,6 +58,9 @@
   "files": [
     "dist/",
     "dashboard/",
+    "tui/src/",
+    "tui/package.json",
+    "tui/tsconfig.json",
     "camelagi.mjs",
     "config.example.yaml",
     "README.md",
