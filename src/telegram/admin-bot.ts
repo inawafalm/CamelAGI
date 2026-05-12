@@ -110,7 +110,7 @@ export async function setupAdminBot(
   // ─── Message handler: wizard text intercept + AI fallback ───────────
 
   const agentCfg = getConfig().agents[agentId];
-  const adminToolsEnabled = agentCfg?.adminTools ?? agentCfg?.admin ?? false;
+  const adminToolsEnabled = agentCfg?.adminTools || agentCfg?.admin || false;
 
   b.catch((err) => {
     console.error(`[admin-bot] Error:`, err.message ?? err);
