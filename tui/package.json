@@ -1,0 +1,23 @@
+{
+  "name": "camelagi-tui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "CamelAGI terminal UI (OpenTUI + Bun). Connects to the CamelAGI gateway via WebSocket.",
+  "scripts": {
+    "dev": "bun src/main.tsx",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.1.27",
+    "@opentui/react": "^0.1.27",
+    "diff": "^7.0.0",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/diff": "^7.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "typescript": "^5.6.0"
+  }
+}
