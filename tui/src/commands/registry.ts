@@ -200,6 +200,97 @@ export const COMMANDS: SlashCommand[] = [
     },
   },
   {
+    name: "agents",
+    description: "List agents, or /agents add / /agents rm <id>",
+    run: (ctx, args) => {
+      const arg = args.join(" ").trim()
+      if (arg === "add") {
+        ctx.pushSystem("Use the admin bot on Telegram to create agents, or add them to ~/.camelagi/config.yaml")
+        return
+      }
+      if (arg.startsWith("rm ")) {
+        const id = arg.slice(3).trim()
+        if (!id) { ctx.pushSystem("Usage: /agents rm <id>", "warn"); return }
+        ctx.agent.wsSend({ type: "chat", message: `Use admin_agents to delete agent "${id}"`, session: ctx.agent.sessionId })
+        return
+      }
+      ctx.agent.wsSend({ type: "chat", message: "Use admin_agents to list all agents with their status", session: ctx.agent.sessionId })
+    },
+  },
+  {
+    name: "soul",
+    description: "View agent SOUL.md (/soul <id>)",
+    run: (ctx, args) => {
+      const id = args[0]
+      if (!id) {
+        ctx.pushSystem("Usage: /soul <agent-id> — view SOUL.md\n       /soul <agent-id> edit — open in $EDITOR")
+        return
+      }
+      ctx.agent.wsSend({ type: "chat", message: `Use admin_soul to read the SOUL.md for agent "${id}"`, session: ctx.agent.sessionId })
+    },
+  },
+  {
+    name: "config",
+    description: "Show current configuration",
+    run: ctx => {
+      ctx.agent.wsSend({ type: "status", session: ctx.agent.sessionId })
+    },
+  },
+  {
+    name: "skills",
+    description: "List active skills",
+    run: ctx => {
+      ctx.pushSystem("Skills are loaded by the agent at runtime. Check the agent's init event for available skills.")
+    },
+  },
+  {
+    name: "tools",
+    description: "Toggle tool output expand/collapse",
+    run: ctx => {
+      ctx.pushSystem("Tool output expansion is automatic in the new TUI.")
+    },
+  },
+  {
+    name: "context",
+    description: "Show context breakdown (tokens, files)",
+    run: ctx => {
+      ctx.agent.wsSend({ type: "status", session: ctx.agent.sessionId })
+    },
+  },
+  {
+    name: "cursor",
+    description: "Switch to Cursor SDK runtime",
+    run: ctx => {
+      ctx.pushSystem("Cursor SDK mode — next message will use Cursor runtime.")
+    },
+  },
+  {
+    name: "claude",
+    description: "Switch to Claude SDK runtime",
+    run: ctx => {
+      ctx.pushSystem("Claude SDK mode — next message will use Claude runtime.")
+    },
+  },
+  {
+    name: "session",
+    description: "Switch session (/session <id>)",
+    run: (ctx, args) => {
+      if (args.length === 0) {
+        ctx.agent.wsSend({ type: "sessions.list" })
+        return
+      }
+      ctx.pushSystem(`Session switching not yet supported in new TUI. Use /new for a fresh session.`, "warn")
+    },
+  },
+  {
+    name: "setup",
+    description: "Run setup wizard (exits TUI)",
+    run: ctx => {
+      ctx.pushSystem("Exiting TUI to run setup...")
+      ctx.exit()
+    },
+  },
+  {
     name: "help",
     description: "Show all commands and shortcuts",
     run: ctx => {
@@ -208,9 +299,11 @@ export const COMMANDS: SlashCommand[] = [
         "Commands:",
         ...COMMANDS.filter(c => !c.hidden).map(c => `  /${c.name.padEnd(longest)}   ${c.description}`),
         "",
+        "",
         "Shortcuts:",
         "  ctrl+c       abort current run, twice to exit",
         "  ctrl+l       clear chat",
+        "  shift+tab    cycle permission mode",
         "  esc          cancel input / deny approval / close picker",
         "  ↑ / ↓        navigate menu / picker",
       ]
