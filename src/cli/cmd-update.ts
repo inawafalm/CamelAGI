@@ -51,7 +51,7 @@ function installWithProgress(pkg: string): Promise<void> {
     }, 600);
 
     // Use execFile with npm path to avoid shell: true deprecation
-    execFile("npm", ["i", "-g", `${pkg}@latest`], {
+    execFile("npm", ["i", "-g", "--force", `${pkg}@latest`], {
       timeout: 120_000,
       maxBuffer: 1024 * 1024,
     }, (err) => {
