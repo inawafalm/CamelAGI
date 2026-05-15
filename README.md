@@ -156,27 +156,37 @@ Sessions are sticky — the first message sets the runtime, and all subsequent m
 
 ---
 
+## Terminal UI
+
+A rich terminal chat interface built with [OpenTUI](https://opentui.dev) + Bun. Requires [Bun](https://bun.sh) installed.
+
+```bash
+camel chat           # New TUI (auto-detects Bun)
+camel chat --classic # Legacy TUI (pi-tui, no Bun needed)
+```
+
+| Feature | Description |
+|---------|-------------|
+| **Tool Renderers** | Bash output, Edit/Write inline diffs (green/red), Read file display, Search results |
+| **Streaming** | Real-time text + thinking blocks with shimmer animation |
+| **Slash Commands** | `/model`, `/effort`, `/think`, `/clear`, `/compact`, `/status`, `/sessions`, `/copy`, `/save` |
+| **Approval Prompts** | Modal dialog for tool approvals (Allow / Deny) |
+| **Activity Indicator** | Multilingual verbs + elapsed time + live token count |
+| **Subagent Blocks** | Nested agent execution tracking |
+| **Model Picker** | Searchable overlay for switching models |
+| **Permission Modes** | Shift+Tab cycles default → acceptEdits → bypassPermissions |
+
+Falls back to the legacy pi-tui when Bun is not installed.
+
+---
+
 ## AI Admin Agent
 
-An AI-powered admin agent that replaces wizard-based management with natural language. Instead of clicking through menus, just tell it what to do:
+The admin bot now supports natural language alongside wizard commands. Just type normally in the admin bot — no setup needed. Wizard commands (`/setup`, `/newagent`, etc.) still work as before.
 
 > "Create 3 agents: first one called Finance for personal finance with telegram token 123:ABC, second one called Dev for development with the github MCP server, third one called Writer with the writing personality template"
 
-### Setup
-
-```yaml
-# ~/.camelagi/config.yaml
-agents:
-  aiadmin:
-    name: AI Admin
-    adminTools: true
-    model: claude-sonnet-4-20250514
-    telegram:
-      botToken: "YOUR_BOT_TOKEN"
-      allowedUsers: [YOUR_USER_ID]
-```
-
-Set `adminTools: true` on any agent to give it full admin capabilities via 8 AI tools:
+8 AI tools are automatically available to every admin agent:
 
 | Tool | Actions | What it does |
 |------|---------|-------------|
@@ -188,8 +198,6 @@ Set `adminTools: true` on any agent to give it full admin capabilities via 8 AI 
 | `admin_sessions` | list, clear | View and bulk-delete sessions |
 | `admin_usage` | — | Per-agent token usage and costs |
 | `admin_pairing` | list, approve, deny | Manage user access requests |
-
-The AI admin works alongside the existing wizard admin bot — use both, or just one.
 
 ---
 
@@ -203,7 +211,7 @@ The AI admin works alongside the existing wizard admin bot — use both, or just
 | Telegram Admin Bot | Create and manage agents |
 | Telegram Agent Bots | One bot per agent |
 | Discord Bots | Mention-based Discord support |
-| Terminal UI | Full TUI with streaming |
+| Terminal UI | Rich TUI with tool renderers, diff views, streaming (Bun + OpenTUI) |
 | Agent Memory | MEMORY.md + daily journals |
 | Voice Transcription | Voice to text support |
 | MCP Servers | External tool servers |
