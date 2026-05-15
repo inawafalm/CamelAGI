@@ -284,10 +284,16 @@ export const COMMANDS: SlashCommand[] = [
   },
   {
     name: "setup",
-    description: "Run setup wizard (exits TUI)",
+    description: "Configure provider, model, API key",
     run: ctx => {
-      ctx.pushSystem("Exiting TUI to run setup...")
-      ctx.exit()
+      ctx.pushSystem(
+        "To configure CamelAGI:\n\n" +
+        "  /model           — switch model\n" +
+        "  /effort          — set effort level\n" +
+        "  /think           — set thinking level\n\n" +
+        "For full setup (provider, API key, Telegram):\n" +
+        "  Run 'camel setup' in a separate terminal"
+      )
     },
   },
   {
