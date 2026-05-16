@@ -30,7 +30,10 @@ export function Input({
   placeholder,
 }: InputProps) {
   const [value, setValue] = useState("")
-  const [menuIdx, setMenuIdx] = useState(0)
+  // -1 means "no row selected" so the first arrow-down lands on row 0
+  // instead of skipping to row 1. Also avoids a pre-highlighted row that
+  // visually competes with the input prompt's chevron.
+  const [menuIdx, setMenuIdx] = useState(-1)
 
   const inSlashMode = value.startsWith("/")
   const slashTokens = inSlashMode ? value.slice(1).split(/\s+/) : []
@@ -42,10 +45,11 @@ export function Input({
     return []
   }, [inSlashMode, slashQuery, slashTokens.length])
 
-  // Keep menuIdx in range as matches change.
-  if (menuIdx >= matches.length && matches.length > 0) {
-    setMenuIdx(0)
-  }
+  // Clamp menuIdx when matches shrink. Done in an effect (not during render)
+  // so we never trigger a setState in the render body.
+  useEffect(() => {
+    if (menuIdx >= matches.length) setMenuIdx(-1)
+  }, [matches.length, menuIdx])
 
   // Notify parent.
   useEffect(() => {
@@ -63,27 +67,31 @@ export function Input({
       return
     }
     if (matches.length > 0) {
-      if (key.name === "up") { setMenuIdx(i => Math.max(0, i - 1)); return }
+      // Up/down navigate; -1 means "no selection yet".
+      if (key.name === "up") { setMenuIdx(i => Math.max(-1, i - 1)); return }
       if (key.name === "down") { setMenuIdx(i => Math.min(matches.length - 1, i + 1)); return }
       if (key.name === "tab") {
-        const pick = matches[menuIdx]
+        // Tab without a selection completes the first match.
+        const pick = matches[menuIdx >= 0 ? menuIdx : 0]
         if (pick) setValue(`/${pick.name} `)
         return
       }
-      if (key.name === "return") {
+      if (key.name === "return" && menuIdx >= 0) {
         const pick = matches[menuIdx]
         if (pick) {
           setValue("")
-          setMenuIdx(0)
+          setMenuIdx(-1)
           onSlash(pick.name, [])
         }
         return
       }
+      // Enter with no menu selection falls through to the regular submit
+      // handler below, which runs the typed command as text.
     }
     if (key.name === "return") {
       const trimmed = value.trim()
       setValue("")
-      setMenuIdx(0)
+      setMenuIdx(-1)
       if (!trimmed) return
       if (trimmed.startsWith("/")) {
         const tokens = trimmed.slice(1).split(/\s+/)

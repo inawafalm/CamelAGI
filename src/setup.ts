@@ -12,6 +12,9 @@ function check<T>(value: T | symbol): T {
   return value as T;
 }
 
+const DEMO = process.env.CAMELAGI_DEMO === "1";
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export async function runSetup() {
   ensureDirs();
   seedWorkspace();
@@ -48,13 +51,11 @@ export async function runSetup() {
     options: [
       { value: "tui",        label: "Terminal (TUI)",       hint: "Just need an API key" },
       { value: "telegram",   label: "Telegram",             hint: "Admin bot + agents from Telegram" },
-      { value: "dashboard",  label: "Dashboard (Web UI)",   hint: "Browser-based control panel" },
       { value: "both",       label: "Both",                 hint: "Terminal + Telegram" },
     ],
   }));
 
   const wantsTelegram = mode === "telegram" || mode === "both";
-  const wantsDashboard = mode === "dashboard";
 
   // ── 1. API Provider ─────────────────────────────────────────────
 
@@ -87,23 +88,7 @@ export async function runSetup() {
 
   p.note(lines.join("\n"), "Setup complete");
 
-  if (wantsDashboard) {
-    const port = config.serve?.port ?? 18305;
-    p.outro("Starting server + opening dashboard...");
-
-    const { startServer } = await import("./serve.js");
-    await startServer({ port, cron: true, boot: true });
-
-    const url = `http://127.0.0.1:${port}`;
-    const dashUrl = `${url}/dashboard`;
-
-    // Open local dashboard in browser
-    const { exec } = await import("node:child_process");
-    const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-    exec(`${openCmd} ${dashUrl}`);
-
-    p.log.success(`Dashboard: ${dashUrl}`);
-  } else if (wantsTelegram) {
+  if (wantsTelegram) {
     p.outro("Run \x1b[36mcamel serve\x1b[0m to start the server.");
   } else {
     p.outro("Run \x1b[36mcamel chat\x1b[0m to start chatting.");
@@ -143,9 +128,26 @@ async function runApiSetup(): Promise<void> {
   if (provider === "openrouter" && apiKey) {
     const s = p.spinner();
     s.start("Fetching models from OpenRouter...");
-    const live = await fetchOpenRouterModels(apiKey);
-    if (live.length > 0) { models = live.map((m) => m.id); s.stop(`${models.length} models available`); }
-    else s.stop("Could not fetch \u2014 using defaults");
+    if (DEMO) {
+      await sleep(1400);
+      models = [
+        "anthropic/claude-haiku-4.5",
+        "anthropic/claude-sonnet-4.6",
+        "anthropic/claude-opus-4.7",
+        "openai/gpt-4o",
+        "openai/gpt-4o-mini",
+        "openai/gpt-4.1",
+        "google/gemini-2.5-pro",
+        "meta-llama/llama-3.3-70b",
+        "deepseek/deepseek-v3",
+        "x-ai/grok-2",
+      ];
+      s.stop(`332 models available`);
+    } else {
+      const live = await fetchOpenRouterModels(apiKey);
+      if (live.length > 0) { models = live.map((m) => m.id); s.stop(`${models.length} models available`); }
+      else s.stop("Could not fetch \u2014 using defaults");
+    }
   }
 
   let model: string;
@@ -216,18 +218,23 @@ async function runTelegramSetup(): Promise<void> {
   // Start just the admin bot for pairing (no full server needed)
   const s2 = p.spinner();
   s2.start("Starting admin bot...");
-  try {
-    const { setupAdminBot } = await import("./telegram/admin-bot.js");
-    const { startPolling } = await import("./telegram/helpers.js");
-    const config = loadConfig();
-    const adminBot = await setupAdminBot("admin", botToken!, () => config, () => "", new Map());
-    startPolling(adminBot, "admin");
-    await new Promise((r) => setTimeout(r, 1500));
+  if (DEMO) {
+    await sleep(2000);
     s2.stop("Admin bot running");
-  } catch (err) {
-    s2.stop("Could not start admin bot");
-    p.log.warn(`Pair later: run camel serve, then send a message to @${result.username} in Telegram.`);
-    return;
+  } else {
+    try {
+      const { setupAdminBot } = await import("./telegram/admin-bot.js");
+      const { startPolling } = await import("./telegram/helpers.js");
+      const config = loadConfig();
+      const adminBot = await setupAdminBot("admin", botToken!, () => config, () => "", new Map());
+      startPolling(adminBot, "admin");
+      await new Promise((r) => setTimeout(r, 1500));
+      s2.stop("Admin bot running");
+    } catch (err) {
+      s2.stop("Could not start admin bot");
+      p.log.warn(`Pair later: run camel serve, then send a message to @${result.username} in Telegram.`);
+      return;
+    }
   }
 
   // Mute background logs
@@ -246,10 +253,24 @@ async function runTelegramSetup(): Promise<void> {
   s3.start("Waiting for message...");
 
   let pairingRequest: Awaited<ReturnType<typeof listPendingRequests>>[number] | undefined;
-  for (let i = 0; i < 120; i++) {
-    const pending = listPendingRequests().filter((r) => r.agentId === "admin" && r.status === "pending");
-    if (pending.length > 0) { pairingRequest = pending[0]; break; }
-    await new Promise((r) => setTimeout(r, 1000));
+  if (DEMO) {
+    await sleep(2500);
+    pairingRequest = {
+      code: "DEMO000",
+      agentId: "admin",
+      userId: 123456789,
+      username: "you",
+      firstName: "You",
+      chatId: 123456789,
+      status: "pending" as const,
+      requestedAt: Date.now(),
+    } as unknown as Awaited<ReturnType<typeof listPendingRequests>>[number];
+  } else {
+    for (let i = 0; i < 120; i++) {
+      const pending = listPendingRequests().filter((r) => r.agentId === "admin" && r.status === "pending");
+      if (pending.length > 0) { pairingRequest = pending[0]; break; }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
   }
 
   if (!pairingRequest) {
@@ -269,21 +290,22 @@ async function runTelegramSetup(): Promise<void> {
     return;
   }
 
-  const approved = approveRequest(pairingRequest.code);
-  if (!approved) {
-    p.log.error("Approval failed.");
-    console.log = origLog; console.error = origErr; console.warn = origWarn;
-    return;
+  if (!DEMO) {
+    const approved = approveRequest(pairingRequest.code);
+    if (!approved) {
+      p.log.error("Approval failed.");
+      console.log = origLog; console.error = origErr; console.warn = origWarn;
+      return;
+    }
+    // Notify user
+    try {
+      await fetch(`https://api.telegram.org/bot${botToken.trim()}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: pairingRequest.chatId, text: "Access approved! You are now the admin." }),
+      });
+    } catch {}
   }
-
-  // Notify user
-  try {
-    await fetch(`https://api.telegram.org/bot${botToken.trim()}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: pairingRequest.chatId, text: "Access approved! You are now the admin." }),
-    });
-  } catch {}
 
   p.log.success(`${userLabel} approved!`);
 
@@ -294,6 +316,10 @@ async function runTelegramSetup(): Promise<void> {
 // ─── Helpers ──────────────────────────────────────────────────────────
 
 async function validateBotToken(token: string): Promise<{ ok: boolean; username?: string; name?: string; error?: string }> {
+  if (DEMO) {
+    await sleep(900);
+    return { ok: true, username: "CamelAGIDemo_bot", name: "CamelAGI Demo" };
+  }
   try {
     const resp = await fetch(`https://api.telegram.org/bot${token}/getMe`);
     const data = await resp.json() as { ok: boolean; result?: { username?: string; first_name?: string }; description?: string };

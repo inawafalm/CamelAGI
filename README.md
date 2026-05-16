@@ -182,7 +182,7 @@ Falls back to the legacy pi-tui when Bun is not installed.
 
 ## AI Admin Agent
 
-The admin bot now supports natural language alongside wizard commands. Just type normally in the admin bot — no setup needed. Wizard commands (`/setup`, `/newagent`, etc.) still work as before.
+The admin bot supports natural language alongside wizard commands. Just type normally in the admin bot — no setup needed. Wizard commands (`/setup`, `/newagent`, etc.) still work as before, and `/claudecode` switches the chat into Claude Code mode (same runtime that agent bots use).
 
 > "Create 3 agents: first one called Finance for personal finance with telegram token 123:ABC, second one called Dev for development with the github MCP server, third one called Writer with the writing personality template"
 
@@ -220,38 +220,6 @@ The admin bot now supports natural language alongside wizard commands. Just type
 | Usage Tracking | Cost + token monitoring |
 | Agent Cloning | Duplicate agent config |
 | Tool Approvals | Human approval flow |
-| Web Dashboard | Browser-based control panel |
-
----
-
-## Web Dashboard
-
-A full 15-page dashboard served locally from the gateway. ChatGPT-style UI with light/dark mode.
-
-```bash
-camel serve
-# Open http://127.0.0.1:18305/dashboard
-```
-
-Auto-connects to the gateway — no URL or token needed for local use.
-
-| Page | What it does |
-|------|-------------|
-| **Overview** | Health stats, uptime, active runs, lane utilization, agents |
-| **Chat** | Real-time streaming, tool cards, thinking blocks, markdown, agent/model/thinking/effort selectors, session sidebar, file upload |
-| **Agents** | Create, delete, clone agents. Edit SOUL.md inline |
-| **Sessions** | Browse history, view messages, delete, export as markdown |
-| **Config** | Editable form (model, provider, thinking, effort, system prompt) + raw JSON |
-| **Monitor** | Live WebSocket event feed |
-| **Workspace** | Edit SOUL.md, TOOLS.md, MEMORY.md, HEARTBEAT.md per agent. Browse daily memory notes |
-| **Cron Jobs** | View scheduled tasks with status |
-| **Skills** | List installed skills |
-| **Pairing** | Approve/deny user access requests |
-| **MCP Servers** | Global + per-agent MCP server listing |
-| **Channels** | Telegram/Discord bot status |
-| **Voice** | Configure transcription provider (Groq/OpenAI/Deepgram) |
-| **Logs** | Auto-refreshing server request log |
-| **Settings** | Gateway URL/token (for remote connections) |
 
 For remote access, use [Tailscale](https://tailscale.com): `camel tailscale serve` or `camel tailscale funnel`.
 
@@ -265,7 +233,6 @@ CamelAGI works across:
 - Discord
 - Terminal
 - Claude Code via Telegram
-- Web Dashboard  
 
 All channels share the same runtime, tools, and memory.
 
@@ -282,6 +249,7 @@ All channels share the same runtime, tools, and memory.
 | `/mcp` | Manage MCP servers |
 | `/usage` | Usage summary |
 | `/status` | System health |
+| `/claudecode` | Switch chat into Claude Code mode |
 
 ---
 

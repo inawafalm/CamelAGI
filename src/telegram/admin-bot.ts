@@ -17,6 +17,9 @@ import { queueOrProcess } from "../runtime/queue.js";
 import { createDraftStream } from "./draft-stream.js";
 import { log as slog } from "../core/log.js";
 import { buildSystemPrompt } from "../system-prompt.js";
+import type { BotContext } from "./agent-context.js";
+import { registerClaudeCode, handleTerminalIncoming } from "./agent-claude-code.js";
+import { hasTerminal } from "./terminal.js";
 
 export async function setupAdminBot(
   agentId: string,
@@ -43,8 +46,26 @@ export async function setupAdminBot(
     { command: "restart", description: "Restart agent bots" },
     { command: "pairing", description: "List pending access requests" },
     { command: "voice", description: "Configure voice transcription" },
+    { command: "claudecode", description: "Claude Code — start, stop, sessions" },
     { command: "cancel", description: "Cancel active wizard" },
   ]).catch(() => {});
+
+  // Build a BotContext so we can layer agent-bot runtime modules (Claude Code, etc.)
+  const me = await b.api.getMe();
+  const ctx: BotContext = {
+    agentId,
+    botToken,
+    bot: b,
+    botInfo: { id: me.id, username: me.username ?? "" },
+    getConfig,
+    getSystemPrompt,
+    activeBots,
+    runtimeModels: new Map(),
+    runtimeThinking: new Map(),
+    runtimeEffort: new Map(),
+    runtimeBriefMode: new Map(),
+    ccPaused: new Set(),
+  };
 
   // ─── Access control ─────────────────────────────────────────────────
 
@@ -107,6 +128,9 @@ export async function setupAdminBot(
   registerAdminCommands(b, agentId, getConfig, getSystemPrompt, activeBots);
   registerAdminAgents(b, agentId, getConfig, getSystemPrompt, activeBots);
 
+  // Layer agent-bot runtime modules: /claudecode, /exit, /workdir, cc:* callbacks
+  registerClaudeCode(ctx);
+
   // ─── Message handler: wizard text intercept + AI fallback ───────────
 
   const agentCfg = getConfig().agents[agentId];
@@ -116,16 +140,22 @@ export async function setupAdminBot(
     console.error(`[admin-bot] Error:`, err.message ?? err);
   });
 
-  b.on("message:text", async (ctx) => {
-    const chatId = ctx.chat.id;
-    const text = ctx.message.text;
+  b.on("message:text", async (gc) => {
+    const chatId = gc.chat.id;
+    const text = gc.message.text;
 
     // Commands are handled by grammy's command() registrations above
     if (text.startsWith("/")) return;
 
+    // Claude Code mode: if a terminal is active in this chat, route there first
+    if (hasTerminal(chatId)) {
+      await handleTerminalIncoming(ctx, gc);
+      return;
+    }
+
     // Active wizard gets priority
     if (hasActiveWizard(chatId)) {
-      if (text === "/cancel") { cancelWizard(chatId); await ctx.reply("Wizard cancelled."); return; }
+      if (text === "/cancel") { cancelWizard(chatId); await gc.reply("Wizard cancelled."); return; }
       const handled = await advanceWizard(chatId, text, b);
       if (handled) return;
     }
@@ -158,13 +188,13 @@ export async function setupAdminBot(
     const setReaction = async (emoji: string) => {
       try {
         const reactions = emoji ? [{ type: "emoji" as const, emoji: emoji as any }] : [];
-        await b.api.setMessageReaction(chatId, ctx.message.message_id, reactions);
+        await b.api.setMessageReaction(chatId, gc.message.message_id, reactions);
       } catch {}
     };
 
     try {
       await setReaction("thinking_face");
-      await ctx.replyWithChatAction("typing");
+      await gc.replyWithChatAction("typing");
 
       slog.info("telegram", "Admin AI message", { agent: agentId, sessionId, text: text.slice(0, 160) });
 
@@ -213,9 +243,9 @@ export async function setupAdminBot(
       const streamMsgId = draft.getMessageId();
       if (streamMsgId && response.length > 4096) {
         try { await b.api.deleteMessage(chatId, streamMsgId); } catch {}
-        await sendChunked(ctx, response);
+        await sendChunked(gc, response);
       } else if (!streamMsgId) {
-        await sendChunked(ctx, response);
+        await sendChunked(gc, response);
       }
 
       await setReaction("");
@@ -225,9 +255,9 @@ export async function setupAdminBot(
       const streamMsgId = draft.getMessageId();
       if (streamMsgId) {
         try { await b.api.editMessageText(chatId, streamMsgId, `Error: ${errMsg}`); }
-        catch { await ctx.reply(`Error: ${errMsg}`); }
+        catch { await gc.reply(`Error: ${errMsg}`); }
       } else {
-        await ctx.reply(`Error: ${errMsg}`);
+        await gc.reply(`Error: ${errMsg}`);
       }
       await setReaction("");
     }

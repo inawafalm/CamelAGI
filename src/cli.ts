@@ -27,7 +27,6 @@ import "./cli/cmd-status.js";
 import "./cli/cmd-connect.js";
 import "./cli/cmd-tailscale.js";
 import "./cli/cmd-watch.js";
-import "./cli/cmd-dashboard.js";
 
 const args = process.argv.slice(2);
 
@@ -59,7 +58,7 @@ if (args[0] === "--help" || args[0] === "-h" || args.length === 0) {
 
   const categorize: Record<string, string> = {
     bootstrap: "Getting Started", setup: "Getting Started", chat: "Getting Started",
-    serve: "Server", dashboard: "Server", daemon: "Server", logs: "Server", status: "Server", connect: "Server", tailscale: "Server", watch: "Server",
+    serve: "Server", daemon: "Server", logs: "Server", status: "Server", connect: "Server", tailscale: "Server", watch: "Server",
     agents: "Agents & Sessions", soul: "Agents & Sessions", sessions: "Agents & Sessions", pairing: "Agents & Sessions",
     config: "Configuration", cron: "Configuration",
     doctor: "Maintenance", reset: "Maintenance", install: "Maintenance", uninstall: "Maintenance",
@@ -102,6 +101,16 @@ if (cmd) {
   }
   await cmd.run(args.slice(1));
 } else if (args[0] && !args[0].startsWith("-")) {
+  // Heuristic: single short word with no spaces is almost certainly a typo'd
+  // command name, not a chat message. Reject instead of spinning up a gateway.
+  if (args.length === 1 && /^[A-Za-z][A-Za-z0-9_-]{0,20}$/.test(args[0])) {
+    const c = "\x1b[36m", g = "\x1b[90m", r = "\x1b[31m", x = "\x1b[0m";
+    console.error(`${r}Unknown command:${x} ${args[0]}`);
+    console.error(`${g}Did you mean one of these? Run ${c}camel --help${x}${g} to see all commands.${x}`);
+    console.error(`${g}To send a one-shot message, wrap it in quotes: ${c}camel "your message"${x}`);
+    process.exit(1);
+  }
+
   // camelagi "your message" — one-shot mode
   const message = args.join(" ");
 

@@ -1,7 +1,9 @@
-// Draft stream: native Telegram streaming via sendMessageDraft (Bot API 9.5)
+// Draft stream: edit-based streaming for Telegram bots.
 //
-// Uses sendMessageDraft for smooth, flicker-free streaming.
-// Falls back to sendMessage + editMessageText if sendMessageDraft fails.
+// Originally attempted native sendMessageDraft (Bot API draft streaming) but
+// that requires the draft_id to be the originating update_id and Telegram's
+// behavior on mismatches duplicates messages. The edit-based fallback is what
+// every production message ended up using anyway.
 
 import type { Bot } from "grammy";
 import { markdownToTelegramHtml } from "./format.js";
@@ -26,7 +28,7 @@ export function createDraftStream(
   let lastSentText = "";
   let pendingText = "";
   let inflight: Promise<void> | null = null;
-  let useNative = true; // try sendMessageDraft first
+  let useNative = false; // native draft streaming disabled (see header comment)
   let timer: NodeJS.Timeout | null = null;
 
   // Fallback throttle (only used if native fails)
@@ -134,19 +136,6 @@ export function createDraftStream(
       if (inflight) await inflight;
       if (pendingText && pendingText !== lastSentText) {
         await doUpdate(pendingText, true);
-      }
-      // If we used native streaming, send the final message as a real message
-      if (useNative && lastSentText) {
-        try {
-          const html = markdownToTelegramHtml(lastSentText);
-          const sent = await api.sendMessage(chatId, html, { parse_mode: "HTML" });
-          messageId = sent.message_id;
-        } catch {
-          try {
-            const sent = await api.sendMessage(chatId, lastSentText);
-            messageId = sent.message_id;
-          } catch { /* ignore */ }
-        }
       }
     },
     getMessageId() { return messageId; },

@@ -14,7 +14,7 @@ export function register(cmd: CliCommand): void {
 }
 
 export function resolve(name: string): CliCommand | undefined {
-  return commands.get(name);
+  return commands.get(name) ?? commands.get(name.toLowerCase());
 }
 
 export function allCommands(): CliCommand[] {
