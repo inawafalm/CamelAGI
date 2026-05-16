@@ -4,6 +4,7 @@ dist/
 *.js.map
 *.d.ts
 !camelagi.mjs
+!dashboard/**/*.js
 .env
 .env.*
 !.env.example
